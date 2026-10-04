@@ -21,7 +21,7 @@ const roleMiddleware = require("../middlewares/roleMiddleware");
 router.get(
     "/",
     authMiddleware,
-    roleMiddleware("ADMIN", "FUNCIONARIO"),
+    roleMiddleware("ADMIN", "GERENTE"),
     servicoController.listar
 );
 
@@ -31,7 +31,7 @@ router.get(
 router.get(
     "/:id",
     authMiddleware,
-    roleMiddleware("ADMIN", "FUNCIONARIO"),
+    roleMiddleware("ADMIN", "GERENTE"),
     servicoController.buscarPorId
 );
 

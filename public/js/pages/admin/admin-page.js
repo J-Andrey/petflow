@@ -122,11 +122,17 @@
 
     function setupAdminLogout() {
         document.querySelectorAll('a[href="/admin/index.html"]').forEach(link => {
-            link.addEventListener("click", () => {
+            link.addEventListener("click", async event => {
+                event.preventDefault();
+                try {
+                    const response = await fetch("/api/auth/logout",{method:"POST",headers:{Authorization:"Bearer "+sessionStorage.getItem("token")}});
+                    if (!response.ok && response.status!==401) throw new Error("Logout");
+                } catch { window.alert("Não foi possível encerrar a sessão. Tente novamente."); return; }
                 sessionStorage.removeItem("token");
                 sessionStorage.removeItem("user");
                 localStorage.removeItem("token");
                 localStorage.removeItem("user");
+                window.location.href="/admin/index.html";
             });
         });
     }

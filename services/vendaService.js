@@ -5,6 +5,8 @@
 ================================================== */
 
 const db = require("../database/connection");
+const rules = require("./orderRules");
+const reservations = require("./reservationService");
 
 const VendaModel = require("../models/vendaModel");
 const ItemVendaModel = require("../models/itemVendaModel");
@@ -45,6 +47,7 @@ const VendaService = {
     ============================================== */
 
     async finalizarVenda(empresaId, venda, itens) {
+        itens = rules.normalizeItems(itens);
 
         if (!empresaId) {
             throw new Error("Empresa não informada.");
@@ -69,8 +72,8 @@ const VendaService = {
             throw new Error("Forma de pagamento inválida.");
         }
 
-        const desconto = Number(venda.desconto ?? 0);
-        const acrescimo = Number(venda.acrescimo ?? 0);
+        const desconto = 0;
+        const acrescimo = 0;
 
         if (
             !Number.isFinite(desconto) ||
@@ -113,9 +116,7 @@ const VendaService = {
 
                     forma_pagamento: formaPagamento,
 
-                    status:
-                        venda.status ??
-                        "AGUARDANDO_PAGAMENTO",
+                    status: "AGUARDANDO_PAGAMENTO",
 
                     desconto,
 
@@ -129,6 +130,9 @@ const VendaService = {
                 client
             );
 
+            const expiresAt = new Date(Date.now() + rules.reservationMinutes() * 60000);
+            await client.query("UPDATE vendas SET reserva_expira_em=$1 WHERE id=$2 AND empresa_id=$3",
+                [expiresAt,novaVenda.id,empresaId]);
             let valorTotalBruto = 0;
 
             const itensCriados = [];
@@ -206,25 +210,16 @@ const VendaService = {
                     );
                 }
 
-                const disponivel =
-                    await MovimentacaoEstoqueService
-                        .verificarDisponibilidade(
-                            empresaId,
-                            produtoId,
-                            quantidade,
-                            client
-                        );
-
-                if (!disponivel) {
-                    throw new Error(
-                        `Estoque insuficiente para o produto ${produto.nome}.`
-                    );
-                }
-
+                const stock=await client.query("SELECT quantidade FROM estoque WHERE empresa_id=$1 AND produto_id=$2 FOR UPDATE",[empresaId,produtoId]);
+                const reserved=await client.query("SELECT COALESCE(SUM(quantidade),0)::integer AS quantidade FROM reservas_estoque WHERE empresa_id=$1 AND produto_id=$2 AND confirmada_em IS NULL AND liberada_em IS NULL",[empresaId,produtoId]);
+                if (!stock.rows[0] || Number(stock.rows[0].quantidade)-Number(reserved.rows[0].quantidade)<quantidade)
+                    throw Object.assign(new Error("Estoque insuficiente para "+produto.nome),{status:409});
+                await client.query("INSERT INTO reservas_estoque(empresa_id,venda_id,produto_id,quantidade,expira_em) VALUES($1,$2,$3,$4,$5)",
+                    [empresaId,novaVenda.id,produtoId,quantidade,expiresAt]);
                 const descontoItem = 0;
 
                 const subtotal =
-                    quantidade * precoUnitario -
+                    quantidade * Math.round(precoUnitario * 100) / 100 -
                     descontoItem;
 
                 const novoItem =
@@ -243,7 +238,7 @@ const VendaService = {
 
                 itensCriados.push(novoItem);
 
-                valorTotalBruto += subtotal;
+                valorTotalBruto = Math.round((valorTotalBruto + subtotal) * 100) / 100;
 
             }
 
@@ -328,12 +323,12 @@ const VendaService = {
 
             let shouldNotifyPayment = false;
 
-            if (venda.status === "PAGAMENTO_APROVADO") {
+            if (venda.estoque_baixado_em) {
                 await VendaModel.atualizarPagamentoPorReferencia(
                     referencia,
                     {
-                        status: "PAGAMENTO_APROVADO",
-                        ...dadosPagamento
+                        ...dadosPagamento,
+                        status: venda.status
                     },
                     client
                 );
@@ -342,7 +337,16 @@ const VendaService = {
                 return venda;
             }
 
+            if (venda.status === "CANCELADA") {
+                // Pagamento tardio exige conciliação: não ressuscitar pedido sem estoque.
+                await client.query("INSERT INTO notificacoes_admin(empresa_id,venda_id,titulo,mensagem) SELECT $1,$2,'Pagamento após cancelamento','Conferir no PagBank e tratar reembolso.' WHERE NOT EXISTS (SELECT 1 FROM notificacoes_admin WHERE venda_id=$2 AND titulo='Pagamento após cancelamento')",[venda.empresa_id,venda.id]);
+                await client.query("COMMIT");
+                return venda;
+            }
             shouldNotifyPayment = true;
+            await client.query("SELECT set_config('petflow.referencia_tipo','VENDA',TRUE),set_config('petflow.referencia_id',$1,TRUE)",[venda.id]);
+            // Confirmar a reserva antes de baixar o saldo; rollback reverte os dois.
+            await client.query("UPDATE reservas_estoque SET confirmada_em=NOW() WHERE venda_id=$1 AND empresa_id=$2 AND confirmada_em IS NULL AND liberada_em IS NULL",[venda.id,venda.empresa_id]);
 
             const itens = await listarItensVenda(
                 venda.id,
@@ -369,6 +373,7 @@ const VendaService = {
                     client
                 );
 
+            await client.query("UPDATE vendas SET estoque_baixado_em=NOW() WHERE id=$1 AND empresa_id=$2 AND estoque_baixado_em IS NULL",[venda.id,venda.empresa_id]);
             await gerarFinanceiroSeNaoExistir(
                 venda.empresa_id,
                 vendaAtualizada || venda,
@@ -381,7 +386,7 @@ const VendaService = {
                 await enviarEmailStatusPedido(
                     vendaAtualizada || venda,
                     "PAGAMENTO_APROVADO"
-                );
+                ).catch(()=>console.warn("[email] confirmação de pagamento não enviada"));
             }
 
             return vendaAtualizada || venda;
@@ -403,82 +408,34 @@ const VendaService = {
        ATUALIZAR STATUS DO PEDIDO
     ============================================== */
 
-    async atualizarStatusPedido(empresaId, vendaId, status) {
-
-        if (status === "PAGAMENTO_APROVADO") {
-            return this.confirmarPagamento(
-                empresaId,
-                vendaId
-            );
-        }
-
-        const vendaAtual = await VendaModel.buscarPorId(
-            vendaId,
-            empresaId
-        );
-
-        if (!vendaAtual) {
-            return null;
-        }
-
-        if (vendaAtual.status === status) {
-            return vendaAtual;
-        }
-
-        const vendaAtualizada = await VendaModel.atualizarStatus(
-            vendaId,
-            empresaId,
-            status
-        );
-
-        await enviarEmailStatusPedido(
-            vendaAtualizada,
-            status
-        );
-
-        return vendaAtualizada;
-
+    async atualizarStatusPedido(empresaId,vendaId,status,actor) {
+        const changed=await db.transaction(async client=>{
+            const current=await buscarVendaPagamento(vendaId,empresaId,client);
+            if(!current) return null;
+            rules.assertTransition(current.status,status);
+            if(current.status===status) return current;
+            if(status==="CANCELADA") await reservations.release(client,current);
+            const updated=await VendaModel.atualizarStatus(vendaId,empresaId,status,client);
+            if(actor) await require("./auditService").record(client,actor,"STATUS","vendas",vendaId,current,updated);
+            return updated;
+        });
+        if(changed) await enviarEmailStatusPedido(changed,status).catch(()=>console.warn("[email] atualização de pedido não enviada"));
+        return changed;
     },
 
     /* ==============================================
        ATUALIZAR STATUS DO PAGAMENTO
     ============================================== */
 
-    async atualizarStatusPagamento(
-        empresaId,
-        referencia,
-        status,
-        dadosPagamento = {}
-    ) {
-
-        const vendaAtual = await buscarVendaPagamento(
-            referencia,
-            empresaId,
-            db
-        );
-
-        if (!vendaAtual) {
-            return null;
-        }
-
-        const vendaAtualizada =
-            await VendaModel.atualizarPagamentoPorReferencia(
-                referencia,
-                {
-                    status,
-                    ...dadosPagamento
-                }
-            );
-
-        if (vendaAtual.status !== status) {
-            await enviarEmailStatusPedido(
-                vendaAtualizada || vendaAtual,
-                status
-            );
-        }
-
-        return vendaAtualizada || vendaAtual;
-
+    async atualizarStatusPagamento(empresaId,referencia,status,dadosPagamento={}) {
+        return db.transaction(async client=>{
+            const current=await buscarVendaPagamento(referencia,empresaId,client);
+            if(!current) return null;
+            // Eventos antigos não desfazem pagamento, entrega ou cancelamento.
+            if(current.estoque_baixado_em || current.status==="CANCELADA") return current;
+            if(status==="CANCELADA") await reservations.release(client,current);
+            return VendaModel.atualizarPagamentoPorReferencia(referencia,{...dadosPagamento,status},client);
+        });
     }
 
 };
@@ -524,7 +481,7 @@ async function listarItensVenda(vendaId, empresaId, client) {
             INNER JOIN vendas v
                 ON v.id = iv.venda_id
             WHERE iv.venda_id = $1
-              AND v.empresa_id = $2;
+              AND v.empresa_id = $2 ORDER BY iv.produto_id;
         `,
         [
             vendaId,

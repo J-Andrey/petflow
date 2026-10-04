@@ -7,6 +7,7 @@
 const express = require("express");
 
 const router = express.Router();
+router.use(["/login","/forgot-password","/reset-password"], require("../middlewares/authRateLimit"));
 
 /* ==================================================
    CONTROLLER
@@ -47,8 +48,6 @@ const loginValidation = [
         .withMessage("Informe um e-mail válido."),
 
     body("senha")
-
-        .trim()
 
         .notEmpty()
 
@@ -97,8 +96,8 @@ router.post(
         .withMessage("Token obrigatório."),
 
     body("senha")
-        .isLength({ min: 6 })
-        .withMessage("A senha deve ter no mínimo 6 caracteres."),
+        .custom(require("../services/sessionService").validPassword)
+        .withMessage("A senha deve ter entre 8 e 72 bytes."),
 
     validationMiddleware,
 

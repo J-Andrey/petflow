@@ -2,7 +2,8 @@
 
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
+const { signSession, validPassword, hashToken } = require("../services/sessionService");
+const validation = require("../services/customerValidation");
 const db = require("../database/connection");
 const {
     JWT_SECRET,
@@ -17,285 +18,65 @@ const {
 } = require("../services/emailService");
 
 async function register(request, response, next) {
-
     try {
-
         const data = request.body;
-
-        if (!hasRequiredRegistrationData(data)) {
-
-            return response.status(400).json({
-                success: false,
-                message: "Informe nome, WhatsApp, e-mail, senha e endereço de entrega."
-            });
-
-        }
-
-        const senhaHash = await bcrypt.hash(
-            data.senha,
-            10
-        );
-
-        const verificationToken = crypto
-            .randomBytes(32)
-            .toString("hex");
-
-        const verificationExpiresAt = new Date(
-            Date.now() + 1000 * 60 * 60 * 24
-        );
-
-        const empresaIdResult = await db.query(
-            "SELECT get_petflow_empresa_id() AS id"
-        );
-
-        const empresaId = empresaIdResult.rows[0].id;
-
-        const existing = await db.query(
-            `
-                SELECT
-                    c.id,
-                    uc.cliente_id AS usuario_cliente_id,
-                    CASE
-                        WHEN LOWER(COALESCE(c.email, uc.email)) = LOWER($1) THEN 'email'
-                        WHEN $3 <> ''
-                         AND REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g') = $3 THEN 'cpf'
-                        WHEN $4 <> ''
-                         AND (
-                            REGEXP_REPLACE(COALESCE(c.telefone, ''), '\\D', '', 'g') = $4
-                            OR REGEXP_REPLACE(COALESCE(c.whatsapp, ''), '\\D', '', 'g') = $4
-                         ) THEN 'telefone'
-                        WHEN $5 <> ''
-                         AND (
-                            REGEXP_REPLACE(COALESCE(c.telefone, ''), '\\D', '', 'g') = $5
-                            OR REGEXP_REPLACE(COALESCE(c.whatsapp, ''), '\\D', '', 'g') = $5
-                         ) THEN 'whatsapp'
-                        ELSE NULL
-                    END AS field
-                FROM clientes c
-                LEFT JOIN usuarios_clientes uc
-                    ON uc.cliente_id = c.id
-                WHERE (
-                    c.empresa_id = $2
-                    OR c.empresa_id IS NULL
-                    OR uc.cliente_id IS NOT NULL
-                )
-                  AND (
-                    LOWER(COALESCE(c.email, uc.email)) = LOWER($1)
-                    OR (
-                        $3 <> ''
-                        AND REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g') = $3
-                    )
-                    OR (
-                        $4 <> ''
-                        AND (
-                            REGEXP_REPLACE(COALESCE(c.telefone, ''), '\\D', '', 'g') = $4
-                            OR REGEXP_REPLACE(COALESCE(c.whatsapp, ''), '\\D', '', 'g') = $4
-                        )
-                    )
-                    OR (
-                        $5 <> ''
-                        AND (
-                            REGEXP_REPLACE(COALESCE(c.telefone, ''), '\\D', '', 'g') = $5
-                            OR REGEXP_REPLACE(COALESCE(c.whatsapp, ''), '\\D', '', 'g') = $5
-                        )
-                    )
-                  )
-                LIMIT 1
-            `,
-            [
-                data.email,
-                empresaId,
-                onlyDigits(data.cpf),
-                onlyDigits(data.telefone),
-                onlyDigits(data.whatsapp)
-            ]
-        );
-
-        if (existing.rows[0]) {
-
-            return response.status(409).json({
-                success: false,
-                message: duplicateCustomerMessage(existing.rows[0].field)
-            });
-
-        }
-
-        let clienteId = existing.rows[0]?.id;
-
-        if (existing.rows[0]?.usuario_cliente_id) {
-
-            return response.status(409).json({
-                success: false,
-                message: "Já existe uma conta cadastrada com esse e-mail."
-            });
-
-        }
-
-        if (clienteId) {
-
-            await db.query(
-                `
-                    UPDATE clientes
-                    SET
-                        nome = $1,
-                        telefone = $2,
-                        whatsapp = $2,
-                        cep = $3,
-                        endereco = $4,
-                        numero = $5,
-                        complemento = $6,
-                        bairro = $7,
-                        cidade = $8,
-                        estado = $9,
-                        data_nascimento = $10,
-                        updated_at = NOW()
-                    WHERE id = $11
-                      AND empresa_id = $12
-                `,
-                [
-                    data.nome,
-                    data.telefone,
-                    data.cep || null,
-                    data.endereco || null,
-                    data.numero || null,
-                    data.complemento || null,
-                    data.bairro || null,
-                    data.cidade || null,
-                    data.estado || null,
-                    data.data_nascimento || data.dataNascimento || null,
-                    clienteId,
-                    empresaId
-                ]
-            );
-
-        } else {
-
-            const created = await db.query(
-                `
-                    INSERT INTO clientes (
-                        empresa_id,
-                        nome,
-                        cpf,
-                        email,
-                        telefone,
-                        whatsapp,
-                        cep,
-                        endereco,
-                        numero,
-                        complemento,
-                        bairro,
-                        cidade,
-                        estado,
-                        data_nascimento,
-                        ativo
-                    )
-                    VALUES (
-                        $1,
-                        $2,
-                        $3,
-                        $4,
-                        $5,
-                        $5,
-                        $6,
-                        $7,
-                        $8,
-                        $9,
-                        $10,
-                        $11,
-                        $12,
-                        $13,
-                        TRUE
-                    )
-                    RETURNING id
-                `,
-                [
-                    empresaId,
-                    data.nome,
-                    data.cpf || null,
-                    data.email.toLowerCase(),
-                    data.telefone,
-                    data.cep || null,
-                    data.endereco || null,
-                    data.numero || null,
-                    data.complemento || null,
-                    data.bairro || null,
-                    data.cidade || null,
-                    data.estado || null,
-                    data.data_nascimento || data.dataNascimento || null
-                ]
-            );
-
-            clienteId = created.rows[0].id;
-
-        }
-
-        await db.query(
-            `
-                INSERT INTO usuarios_clientes (
-                    cliente_id,
-                    email,
-                    senha_hash,
-                    email_verificado,
-                    token_verificacao_email,
-                    token_verificacao_expiracao,
-                    ativo
-                )
-                VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    FALSE,
-                    $4,
-                    $5,
-                    TRUE
-                )
-            `,
-            [
-                clienteId,
-                data.email.toLowerCase(),
-                senhaHash,
-                verificationToken,
-                verificationExpiresAt
-            ]
-        );
-
-        const profile = await getProfileById(
-            clienteId,
-            empresaId
-        );
-
-        await createCustomerNotification({
-            clienteId,
-            titulo: "Bem-vindo à PetFlow",
-            mensagem: `${firstName(profile.nome)}, seu cadastro foi criado com sucesso. Agora você pode comprar, favoritar produtos e acompanhar seus pedidos.`,
-            tipo: "SISTEMA"
+        if (!validation.validRegistration(data)) return response.status(400).json({
+            success: false, message: "Confira os dados, CPF, endereço, senha de 8 a 72 bytes e aceite os Termos e a Política de Privacidade."
         });
-
-        const verificationUrl = `${APP_URL}/login?verificar_email=${verificationToken}`;
-
-        const template = emailVerificationTemplate({
-            name: profile.nome,
-            verifyUrl: verificationUrl
+        const senhaHash = await bcrypt.hash(data.senha, 12);
+        const token = crypto.randomBytes(32).toString("hex");
+        await db.transaction(async client => {
+            const company = await client.query("SELECT get_petflow_empresa_id() AS id");
+            const empresaId = company.rows[0].id;
+            // Serializa cadastros públicos da mesma empresa, além dos índices de unicidade.
+            await client.query("SELECT id FROM empresas WHERE id=$1 FOR UPDATE", [empresaId]);
+            const phone = validation.digits(data.telefone);
+            const whatsapp = validation.digits(data.whatsapp || data.telefone);
+            const existing = await client.query(
+                "SELECT id FROM clientes WHERE empresa_id=$1 AND (LOWER(email)=LOWER($2) OR regexp_replace(cpf,'[^0-9]','','g')=$3 OR regexp_replace(telefone,'[^0-9]','','g')=ANY($4::text[]) OR regexp_replace(whatsapp,'[^0-9]','','g')=ANY($4::text[])) LIMIT 1",
+                [empresaId, data.email.trim(), validation.digits(data.cpf), [phone, whatsapp]]);
+            if (existing.rowCount) throw Object.assign(new Error("Dados já cadastrados. Entre na conta ou solicite o reenvio da confirmação."), { status: 409 });
+            const created = await client.query(
+                "INSERT INTO clientes (empresa_id,nome,cpf,email,telefone,whatsapp,cep,endereco,numero,complemento,bairro,cidade,estado,data_nascimento,ativo,privacidade_versao,privacidade_aceita_em) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,TRUE,$15,NOW()) RETURNING id",
+                [empresaId,data.nome.trim(),formatCpf(data.cpf),data.email.trim().toLowerCase(),phone,whatsapp,validation.digits(data.cep),data.endereco.trim(),data.numero.trim(),data.complemento||null,data.bairro.trim(),data.cidade.trim(),data.estado.toUpperCase(),data.data_nascimento||null,process.env.PRIVACY_POLICY_VERSION||"2026-10-04"]);
+            const id=created.rows[0].id;
+            await client.query(
+                "INSERT INTO usuarios_clientes (cliente_id,email,senha_hash,email_verificado,token_verificacao_email,token_verificacao_expiracao,ativo) VALUES ($1,$2,$3,FALSE,$4,NOW()+INTERVAL '24 hours',TRUE)",
+                [id,data.email.trim().toLowerCase(),senhaHash,hashToken(token)]);
+            for (const finalidade of ["PRIVACIDADE","TERMOS"]) await client.query(
+                "INSERT INTO lgpd_consentimentos (empresa_id,cliente_id,finalidade,versao,concedido,origem,ip_hash,user_agent_hash) VALUES ($1,$2,$3,$4,TRUE,'SITE',$5,$6)",
+                [empresaId,id,finalidade,process.env.PRIVACY_POLICY_VERSION||"2026-10-04",
+                    crypto.createHmac("sha256",JWT_SECRET).update(request.ip||"").digest("hex"),
+                    crypto.createHmac("sha256",JWT_SECRET).update(request.get("user-agent")||"").digest("hex")]);
+            const template=emailVerificationTemplate({name:data.nome,verifyUrl:APP_URL+"/login?verificar_email="+token});
+            // Se o envio crítico falhar, todos os inserts são revertidos.
+            await sendEmail({to:data.email.trim(),...template,idempotencyKey:"verify-"+hashToken(token)});
         });
+        return response.status(201).json({success:true,message:"Cadastro criado. Confirme seu e-mail para entrar."});
+    } catch(error) { return next(error); }
+}
 
-        await sendEmail({
-            to: profile.email,
-            subject: template.subject,
-            html: template.html,
-            text: template.text
-        });
+async function resendVerification(request,response,next) {
+    try {
+        const email=String(request.body?.email||"").trim().toLowerCase();
+        const {rows}=await db.query(
+            "SELECT c.id,c.nome,c.email FROM clientes c JOIN usuarios_clientes uc ON uc.cliente_id=c.id WHERE LOWER(c.email)=$1 AND c.empresa_id=get_petflow_empresa_id() AND c.ativo=TRUE AND uc.ativo=TRUE AND uc.email_verificado=FALSE", [email]);
+        if (rows[0]) {
+            const token=crypto.randomBytes(32).toString("hex");
+            await db.query("UPDATE usuarios_clientes SET token_verificacao_email=$1,token_verificacao_expiracao=NOW()+INTERVAL '24 hours' WHERE cliente_id=$2 AND email_verificado=FALSE",[hashToken(token),rows[0].id]);
+            const template=emailVerificationTemplate({name:rows[0].nome,verifyUrl:APP_URL+"/login?verificar_email="+token});
+            await sendEmail({to:rows[0].email,...template,idempotencyKey:"verify-"+hashToken(token)})
+                .catch(()=>console.warn("[email] reenvio de confirmação não enviado"));
+        }
+        return response.json({success:true,message:"Se houver cadastro pendente, enviaremos um novo link de confirmação."});
+    } catch(error) { return next(error); }
+}
 
-        return response.status(201).json({
-            success: true,
-            message: "Cadastro criado. Enviamos um link de confirmação para seu e-mail."
-        });
-
-    } catch (error) {
-
-        return next(error);
-
-    }
-
+async function logout(request,response,next) {
+    try {
+        await db.query("UPDATE usuarios_clientes uc SET sessao_versao=uc.sessao_versao+1 FROM clientes c WHERE uc.cliente_id=c.id AND c.id=$1 AND c.empresa_id=$2",[request.customer.id,request.customer.empresaId]);
+        return response.json({success:true,message:"Sessões encerradas."});
+    } catch(error) { return next(error); }
 }
 
 async function login(request, response, next) {
@@ -318,6 +99,7 @@ async function login(request, response, next) {
                 SELECT
                     c.*,
                     uc.senha_hash,
+                    uc.sessao_versao,
                     uc.email_verificado,
                     uc.ativo AS usuario_ativo
                 FROM clientes c
@@ -468,7 +250,7 @@ async function forgotPassword(request, response, next) {
                 WHERE cliente_id = $3
             `,
             [
-                token,
+                hashToken(token),
                 expiresAt,
                 cliente.id
             ]
@@ -486,12 +268,13 @@ async function forgotPassword(request, response, next) {
             to: cliente.email,
             subject: template.subject,
             html: template.html,
-            text: template.text
-        });
+            text: template.text,
+            idempotencyKey: "customer-reset-"+hashToken(token)
+        }).catch(()=>console.warn("[email] recuperação de cliente não enviada"));
 
         return response.status(200).json({
             success: true,
-            message: "Enviamos as instruções de recuperação para seu e-mail."
+            message: "Se o e-mail estiver cadastrado, enviaremos as instruções de recuperação."
         });
 
     } catch (error) {
@@ -533,7 +316,7 @@ async function verifyEmail(request, response, next) {
                   AND token_verificacao_expiracao > NOW()
                   AND ativo = TRUE
             `,
-            [token]
+            [hashToken(token)]
         );
 
         if (!rowCount) {
@@ -558,84 +341,18 @@ async function verifyEmail(request, response, next) {
 
 }
 
-async function resetPassword(request, response, next) {
-
+async function resetPassword(request,response,next) {
     try {
-
-        const {
-            token,
-            senha
-        } = request.body;
-
-        if (
-            !token ||
-            !senha ||
-            String(senha).length < 6
-        ) {
-
-            return response.status(400).json({
-                success: false,
-                message: "Informe o token e uma senha com no mínimo 6 caracteres."
-            });
-
-        }
-
-        const { rows } = await db.query(
-            `
-                SELECT
-                    cliente_id
-                FROM usuarios_clientes
-                WHERE token_recuperacao = $1
-                  AND token_expiracao > NOW()
-                  AND ativo = TRUE
-                LIMIT 1
-            `,
-            [token]
-        );
-
-        const usuarioCliente = rows[0];
-
-        if (!usuarioCliente) {
-
-            return response.status(400).json({
-                success: false,
-                message: "Link inválido ou expirado."
-            });
-
-        }
-
-        const senhaHash = await bcrypt.hash(
-            senha,
-            10
-        );
-
-        await db.query(
-            `
-                UPDATE usuarios_clientes
-                SET
-                    senha_hash = $1,
-                    token_recuperacao = NULL,
-                    token_expiracao = NULL,
-                    updated_at = NOW()
-                WHERE cliente_id = $2
-            `,
-            [
-                senhaHash,
-                usuarioCliente.cliente_id
-            ]
-        );
-
-        return response.status(200).json({
-            success: true,
-            message: "Senha redefinida com sucesso."
-        });
-
-    } catch (error) {
-
-        return next(error);
-
-    }
-
+        const {token,senha}=request.body;
+        if (typeof token!=="string" || !/^[a-f0-9]{64}$/.test(token) || !validPassword(senha))
+            return response.status(400).json({success:false,message:"Informe o token e uma senha entre 8 e 72 bytes."});
+        const hash=await bcrypt.hash(senha,12);
+        const {rowCount}=await db.query(
+            "UPDATE usuarios_clientes uc SET senha_hash=$1,token_recuperacao=NULL,token_expiracao=NULL,sessao_versao=uc.sessao_versao+1 FROM clientes c WHERE uc.cliente_id=c.id AND uc.token_recuperacao=$2 AND uc.token_expiracao>NOW() AND uc.ativo=TRUE AND c.ativo=TRUE AND c.empresa_id=get_petflow_empresa_id()",
+            [hash,hashToken(token)]);
+        if (!rowCount) return response.status(400).json({success:false,message:"Link inválido ou expirado."});
+        return response.json({success:true,message:"Senha redefinida com sucesso."});
+    } catch(error) {return next(error);}
 }
 
 async function me(request, response, next) {
@@ -697,7 +414,7 @@ async function update(request, response, next) {
 
         }
 
-        if (!hasRequiredProfileData(data)) {
+        if (!validation.validProfile(data)) {
 
             return response.status(400).json({
                 success: false,
@@ -779,121 +496,18 @@ async function update(request, response, next) {
 
 }
 
-async function remove(request, response, next) {
-
-    const client = await db.connect();
-
+async function remove(request,response,next) {
     try {
-
-        const customer = getAuthenticatedCustomer(
-            request,
-            response
-        );
-
-        if (!customer) {
-
-            return;
-
-        }
-
-        await client.query("BEGIN");
-
-        const profile = await getProfileById(
-            customer.id,
-            customer.empresaId
-        );
-
-        await client.query(
-            `
-                DELETE FROM newsletter_inscritos
-                WHERE empresa_id = $1
-                  AND LOWER(email) = LOWER($2)
-            `,
-            [
-                customer.empresaId,
-                profile?.email || customer.email || ""
-            ]
-        );
-
-        await client.query(
-            `
-                DELETE FROM agendamentos
-                WHERE empresa_id = $1
-                  AND cliente_id = $2
-            `,
-            [
-                customer.empresaId,
-                customer.id
-            ]
-        );
-
-        await client.query(
-            `
-                DELETE FROM pets
-                WHERE empresa_id = $1
-                  AND cliente_id = $2
-            `,
-            [
-                customer.empresaId,
-                customer.id
-            ]
-        );
-
-        await client.query(
-            `
-                UPDATE vendas
-                SET
-                    cliente_id = NULL,
-                    updated_at = NOW()
-                WHERE empresa_id = $1
-                  AND cliente_id = $2
-            `,
-            [
-                customer.empresaId,
-                customer.id
-            ]
-        );
-
-        await client.query(
-            `
-                DELETE FROM usuarios_clientes
-                WHERE cliente_id = $1
-            `,
-            [
-                customer.id
-            ]
-        );
-
-        await client.query(
-            `
-                DELETE FROM clientes
-                WHERE id = $1
-                  AND empresa_id = $2
-            `,
-            [
-                customer.id,
-                customer.empresaId
-            ]
-        );
-
-        await client.query("COMMIT");
-
-        return response.status(200).json({
-            success: true,
-            message: "Cadastro excluído com sucesso."
+        const customer=request.customer;
+        const protocolo="LGPD-"+crypto.randomBytes(10).toString("hex").toUpperCase();
+        await db.transaction(async client=>{
+            await client.query("SELECT id FROM clientes WHERE id=$1 AND empresa_id=$2 FOR UPDATE",[customer.id,customer.empresaId]);
+            await client.query("INSERT INTO lgpd_solicitacoes (protocolo,empresa_id,cliente_id,email_referencia,tipo,detalhes) VALUES ($1,$2,$3,$4,'EXCLUSAO','Exclusão solicitada pelo titular; analisar retenção e operações em aberto.')",[protocolo,customer.empresaId,customer.id,customer.email]);
+            await client.query("DELETE FROM newsletter_inscritos WHERE empresa_id=$1 AND LOWER(email)=LOWER($2)",[customer.empresaId,customer.email]);
+            await client.query("UPDATE usuarios_clientes SET sessao_versao=sessao_versao+1 WHERE cliente_id=$1",[customer.id]);
         });
-
-    } catch (error) {
-
-        await client.query("ROLLBACK");
-        return next(error);
-
-    } finally {
-
-        client.release();
-
-    }
-
+        return response.status(202).json({success:true,protocolo,message:"Solicitação de exclusão registrada: "+protocolo+". Dados necessários e atendimentos serão preservados durante a análise."});
+    } catch(error) {return next(error);}
 }
 
 async function orders(request, response, next) {
@@ -1158,19 +772,7 @@ function buildAuthPayload(cliente) {
         data_nascimento: cliente.data_nascimento
     };
 
-    const token = jwt.sign(
-        {
-            type: "customer",
-            id: cliente.id,
-            empresaId: cliente.empresa_id,
-            email: cliente.email,
-            nome: cliente.nome
-        },
-        JWT_SECRET,
-        {
-            expiresIn: JWT_EXPIRES_IN
-        }
-    );
+    const token = signSession(cliente, "customer", JWT_SECRET, JWT_EXPIRES_IN);
 
     return {
         token,
@@ -1263,7 +865,7 @@ function onlyDigits(value) {
 
 function isValidCpf(value) {
 
-    return /^\d{11}$/.test(onlyDigits(value));
+    return validation.validCpf(value);
 
 }
 
@@ -1314,11 +916,7 @@ async function findDuplicateCustomer({
                 END AS field
             FROM clientes
             WHERE id <> $2
-              AND (
-                  empresa_id = $3
-                  OR empresa_id = get_petflow_empresa_id()
-                  OR empresa_id IS NULL
-              )
+              AND empresa_id = $3
               AND (
                   (
                       $1 <> ''
@@ -1401,6 +999,8 @@ function firstName(name) {
 
 module.exports = {
     register,
+    resendVerification,
+    logout,
     login,
     forgotPassword,
     verifyEmail,

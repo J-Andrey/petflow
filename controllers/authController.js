@@ -2,7 +2,7 @@
 
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
+const { signSession, validPassword } = require("../services/sessionService");
 
 const authModel = require("../models/authModel");
 const {
@@ -50,16 +50,12 @@ async function login(request, response, next) {
             nome: usuario.nome,
             email: usuario.email,
             cargo: usuario.cargo,
-            perfil: usuario.cargo
+            perfil: usuario.cargo,
+            type: "admin",
+            sessao_versao: usuario.sessao_versao
         };
 
-        const token = jwt.sign(
-            payload,
-            JWT_SECRET,
-            {
-                expiresIn: JWT_EXPIRES_IN
-            }
-        );
+        const token = signSession(usuario, "admin", JWT_SECRET, JWT_EXPIRES_IN);
 
         return response.status(200).json({
             success: true,
@@ -87,6 +83,7 @@ async function me(request, response, next) {
 
 async function logout(request, response, next) {
     try {
+        await authModel.revokeSessions(request.user.id, request.user.empresaId);
         return response.status(200).json({
             success: true,
             message: "Logout realizado com sucesso."
@@ -134,12 +131,13 @@ async function forgotPassword(request, response, next) {
             to: usuario.email,
             subject: template.subject,
             html: template.html,
-            text: template.text
-        });
+            text: template.text,
+            idempotencyKey: `admin-reset-${require("../services/sessionService").hashToken(token)}`
+        }).catch(() => console.warn("[email] recuperação administrativa não enviada"));
 
         return response.status(200).json({
             success: true,
-            message: "Enviamos as instruções de recuperação para seu e-mail."
+            message: "Se o e-mail estiver cadastrado, enviaremos as instruções de recuperação."
         });
     } catch (error) {
         next(error);
@@ -150,25 +148,21 @@ async function resetPassword(request, response, next) {
     try {
         const { token, senha } = request.body;
 
-        if (!token || !senha || String(senha).length < 6) {
+        if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) || !validPassword(senha)) {
             return response.status(400).json({
                 success: false,
-                message: "Informe o token e uma senha com no mínimo 6 caracteres."
+                message: "Informe o token e uma senha entre 8 e 72 bytes."
             });
         }
 
-        const usuario = await authModel.findByPasswordResetToken(token);
-
-        if (!usuario) {
+        const senhaHash = await bcrypt.hash(senha, 12);
+        const consumed = await authModel.consumePasswordResetToken(token, senhaHash);
+        if (!consumed) {
             return response.status(400).json({
                 success: false,
                 message: "Link inválido ou expirado."
             });
         }
-
-        const senhaHash = await bcrypt.hash(senha, 10);
-
-        await authModel.updatePassword(usuario.id, senhaHash);
 
         return response.status(200).json({
             success: true,

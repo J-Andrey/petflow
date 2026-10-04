@@ -12,11 +12,16 @@ async function produtos(request, response, next) {
                 p.preco,
                 p.foto,
                 p.sku,
-                c.nome AS categoria
+                c.nome AS categoria,
+                GREATEST(0,COALESCE(e.quantidade,0)-COALESCE(r.quantidade,0)) AS estoque_disponivel
             FROM produtos p
             LEFT JOIN categorias c
-                ON c.id = p.categoria_id
+                ON c.id = p.categoria_id AND c.empresa_id=p.empresa_id
+            LEFT JOIN estoque e ON e.produto_id=p.id AND e.empresa_id=p.empresa_id
+            LEFT JOIN LATERAL (SELECT SUM(quantidade) AS quantidade FROM reservas_estoque
+                WHERE empresa_id=p.empresa_id AND produto_id=p.id AND confirmada_em IS NULL AND liberada_em IS NULL) r ON TRUE
             WHERE COALESCE(p.status, p.ativo, TRUE) = TRUE
+                AND p.empresa_id=get_petflow_empresa_id()
             ORDER BY p.nome ASC
             LIMIT 12;
         `);
@@ -39,6 +44,7 @@ async function categorias(request, response, next) {
                 descricao
             FROM categorias
             WHERE COALESCE(status, ativo, TRUE) = TRUE
+                AND empresa_id=get_petflow_empresa_id()
             ORDER BY nome ASC;
         `);
 
@@ -62,6 +68,7 @@ async function servicos(request, response, next) {
                 duracao
             FROM servicos
             WHERE ativo = TRUE
+                AND empresa_id=get_petflow_empresa_id()
             ORDER BY nome ASC
             LIMIT 8;
         `);

@@ -24,7 +24,7 @@ router.get(
 
     "/venda/:vendaId",
 
-    roleMiddleware("ADMIN", "FUNCIONARIO"),
+    roleMiddleware("ADMIN", "GERENTE"),
 
     ItemVendaController.listar
 
@@ -34,7 +34,7 @@ router.get(
 
     "/:id",
 
-    roleMiddleware("ADMIN", "FUNCIONARIO"),
+    roleMiddleware("ADMIN", "GERENTE"),
 
     ItemVendaController.buscarPorId
 
@@ -48,7 +48,7 @@ router.post(
 
     "/",
 
-    roleMiddleware("ADMIN", "FUNCIONARIO"),
+    roleMiddleware("ADMIN", "GERENTE"),
 
     ItemVendaController.criar
 

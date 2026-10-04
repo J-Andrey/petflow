@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupTabs();
     setupEmailVerificationFromUrl();
     setupPublicLogin();
+    setupResendVerification();
     setupPublicRegister();
     setupPublicAccount();
     setupPublicOrders();
@@ -173,7 +174,8 @@ async function setupPublicAccount() {
         }
     });
 
-    document.getElementById("publicLogout")?.addEventListener("click", () => {
+    document.getElementById("publicLogout")?.addEventListener("click", async () => {
+        try { await request("/clientes/logout", "POST", {}); } catch(error) { setStatus(status,error.message); return; }
         clearPublicSession();
         window.location.href = "/";
     });
@@ -190,9 +192,10 @@ async function setupPublicAccount() {
         setStatus(status, "Excluindo cadastro...");
 
         try {
-            await request("/clientes/me", "DELETE");
+            const result = await request("/clientes/me", "DELETE");
             clearPublicSession();
-            window.location.href = "/";
+            setStatus(status, result.message);
+            form.querySelectorAll("input, button").forEach(element => element.disabled = true);
         } catch (error) {
             setStatus(status, error.message || "Não foi possível excluir o cadastro.");
         }
@@ -755,4 +758,20 @@ function escapeHtml(value) {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+}
+
+function setupResendVerification() {
+    const form = document.getElementById("publicLoginForm");
+    if (!form) return;
+    const button=document.createElement("button");
+    button.type="button"; button.className="btn"; button.textContent="Reenviar confirmação de e-mail";
+    form.appendChild(button);
+    button.addEventListener("click",async()=>{
+        button.disabled=true;
+        try {
+            const result=await request("/clientes/reenviar-confirmacao","POST",{email:form.elements.email.value});
+            setStatus(document.getElementById("loginStatus"),result.message);
+        } catch(error) { setStatus(document.getElementById("loginStatus"),error.message); }
+        finally { button.disabled=false; }
+    });
 }

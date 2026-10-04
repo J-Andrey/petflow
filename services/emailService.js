@@ -6,17 +6,19 @@ const {
     APP_URL
 } = require("../config/env");
 
-async function sendEmail({ to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, idempotencyKey }) {
     if (!RESEND_API_KEY) {
-        throw new Error("RESEND_API_KEY não configurada no .env.");
+        throw Object.assign(new Error("Serviço de e-mail indisponível. Tente novamente mais tarde."), { status: 503 });
     }
 
     const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
             Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {})
         },
+        signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
             from: EMAIL_FROM,
             to,
@@ -24,12 +26,12 @@ async function sendEmail({ to, subject, html, text }) {
             html,
             text
         })
-    });
+    }).catch(() => { throw Object.assign(new Error("Não foi possível contatar o serviço de e-mail."), { status: 503 }); });
 
-    const payload = await response.json();
+    const payload = await response.json().catch(() => null);
 
-    if (!response.ok) {
-        throw new Error(payload.message || "Não foi possível enviar o e-mail.");
+    if (!response.ok || !payload?.id) {
+        throw Object.assign(new Error("Não foi possível enviar o e-mail. Tente novamente mais tarde."), { status: 503 });
     }
 
     return payload;
@@ -39,7 +41,7 @@ async function sendOptionalEmail(options) {
     try {
         return await sendEmail(options);
     } catch (error) {
-        console.warn("[email] envio ignorado:", error.message);
+        console.warn("[email] envio opcional não concluído");
         return null;
     }
 }

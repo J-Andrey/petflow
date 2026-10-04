@@ -12,7 +12,7 @@ const MovimentacaoEstoqueService = {
 
         quantidade = Number(quantidade);
 
-        if (quantidade <= 0) {
+        if (!Number.isSafeInteger(quantidade) || quantidade <= 0) {
 
             throw new Error("Quantidade inválida.");
 
@@ -94,58 +94,11 @@ const MovimentacaoEstoqueService = {
     ============================================== */
 
     async saida(empresaId, produtoId, quantidade, client = db) {
-
-        quantidade = Number(quantidade);
-
-        if (quantidade <= 0) {
-
-            throw new Error("Quantidade inválida.");
-
-        }
-
-        const estoque = await this.consultar(
-
-            empresaId,
-            produtoId,
-            client
-
-        );
-
-        if (!estoque) {
-
-            throw new Error("Produto não encontrado no estoque.");
-
-        }
-
-        if (Number(estoque.quantidade) < quantidade) {
-
-            throw new Error("Estoque insuficiente.");
-
-        }
-
-        const query = `
-            UPDATE estoque
-            SET
-
-                quantidade = quantidade - $1,
-                updated_at = CURRENT_TIMESTAMP
-
-            WHERE empresa_id = $2
-            AND produto_id = $3
-
-            RETURNING *;
-        `;
-
-        const { rows } = await client.query(query, [
-
-            quantidade,
-            empresaId,
-            produtoId
-
-        ]);
-
+        quantidade=Number(quantidade);
+        if(!Number.isSafeInteger(quantidade)||quantidade<=0) throw Object.assign(new Error("Quantidade inválida."),{status:400});
+        const {rows}=await client.query("UPDATE estoque SET quantidade=quantidade-$1,updated_at=NOW() WHERE empresa_id=$2 AND produto_id=$3 AND quantidade >= $1 RETURNING *",[quantidade,empresaId,produtoId]);
+        if(!rows[0]) throw Object.assign(new Error("Estoque insuficiente."),{status:409});
         return rows[0];
-
     },
 
     /* ==============================================
@@ -156,7 +109,7 @@ const MovimentacaoEstoqueService = {
 
         quantidade = Number(quantidade);
 
-        if (quantidade < 0) {
+        if (!Number.isSafeInteger(quantidade) || quantidade < 0) {
 
             throw new Error("Quantidade inválida.");
 

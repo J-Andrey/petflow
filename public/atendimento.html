@@ -1,0 +1,7 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PetFlow — Atendimento e privacidade</title><link rel="stylesheet" href="/css/pages/professional.css"></head>
+<body><main class="professional"><a href="/conta">← Minha conta</a><h1>Atendimento e privacidade</h1><p>Registre sua solicitação e acompanhe a resposta pelo protocolo.</p>
+<button id="export">Baixar meus dados disponíveis</button>
+<form id="requestForm"><label>Assunto<select name="categoria"><option value="atendimento">Pedido</option><option value="lgpd">Privacidade</option></select></label>
+<label>Tipo<select name="tipo"></select></label><label id="orderLabel">Pedido<select name="venda_id"></select></label>
+<label>Conte o que você precisa<textarea name="detalhes" minlength="5" maxlength="1000" required></textarea></label><button>Enviar solicitação</button></form>
+<p id="status" role="status"></p><h2>Minhas solicitações</h2><section id="requests"></section></main><script src="/js/pages/auth/rights.js"></script></body></html>

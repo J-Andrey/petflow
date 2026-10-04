@@ -7,5 +7,6 @@ app.listen(PORT, "0.0.0.0", () => {
 
     console.log(`PetFlow rodando na porta ${PORT}.`);
     startReminderJob();
+    require("./services/reservationService").start();
 
 });

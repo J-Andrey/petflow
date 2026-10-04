@@ -133,23 +133,8 @@ async function criarPedido(request, response, next) {
            BUSCA EMPRESA E CLIENTE
         ========================================== */
 
-        const empresaIdResult = await db.query(
-            `
-                SELECT get_petflow_empresa_id() AS id;
-            `
-        );
-
-        const empresaId = empresaIdResult.rows[0]?.id;
-
-        if (!empresaId) {
-            throw new Error(
-                "Não foi possível identificar a empresa do PetFlow."
-            );
-        }
-
-        const cliente = await getCliente(
-            request.customer.id
-        );
+        const empresaId = request.customer.empresaId;
+        const cliente = await getCliente(request.customer.id, empresaId);
 
         const camposFaltando =
             verificarEndereco(cliente);
@@ -329,7 +314,7 @@ function normalizarItens(itens) {
    BUSCAR CLIENTE
 ================================================== */
 
-async function getCliente(id) {
+async function getCliente(id, empresaId) {
 
     const { rows } = await db.query(
         `
@@ -346,10 +331,10 @@ async function getCliente(id) {
                 cidade,
                 estado
             FROM clientes
-            WHERE id = $1
+            WHERE id = $1 AND empresa_id = $2 AND ativo = TRUE
             LIMIT 1;
         `,
-        [id]
+        [id, empresaId]
     );
 
     if (!rows[0]) {

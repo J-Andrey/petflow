@@ -10,6 +10,7 @@ const newsletterController = require("../controllers/newsletterController");
 const customerAuthMiddleware = require("../middlewares/customerAuthMiddleware");
 
 const router = express.Router();
+router.use(["/clientes/login","/clientes/cadastro","/clientes/reenviar-confirmacao","/clientes/esqueci-senha","/clientes/redefinir-senha"], require("../middlewares/authRateLimit"));
 
 router.get("/produtos", publicCatalogController.produtos);
 router.get("/categorias", publicCatalogController.categorias);
@@ -18,6 +19,8 @@ router.post("/newsletter", newsletterController.subscribe);
 router.get("/newsletter/cancelar", newsletterController.unsubscribe);
 router.post("/clientes/cadastro", publicCustomerController.register);
 router.post("/clientes/login", publicCustomerController.login);
+router.post("/clientes/reenviar-confirmacao", publicCustomerController.resendVerification);
+router.post("/clientes/logout", customerAuthMiddleware, publicCustomerController.logout);
 router.get("/clientes/verificar-email", publicCustomerController.verifyEmail);
 router.post("/clientes/verificar-email", publicCustomerController.verifyEmail);
 router.post("/clientes/esqueci-senha", publicCustomerController.forgotPassword);

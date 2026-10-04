@@ -238,8 +238,12 @@
         accountLink.insertAdjacentElement("afterend", logout);
     }
 
-    function handleCustomerLogout(event) {
+    async function handleCustomerLogout(event) {
         event.preventDefault();
+        try {
+            const response = await fetch("/api/public/clientes/logout", {method:"POST",headers:{Authorization:"Bearer "+sessionStorage.getItem("petflow_customer_token")}});
+            if (!response.ok && response.status !== 401) throw new Error("Não foi possível encerrar a sessão.");
+        } catch { window.alert("Não foi possível encerrar a sessão. Tente novamente."); return; }
         clearCustomerSession();
         updateHeaderState();
         document.dispatchEvent(new CustomEvent("petflow:customer-logout"));

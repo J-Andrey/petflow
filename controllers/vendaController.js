@@ -161,7 +161,8 @@ class VendaController {
             const pedido = await VendaService.atualizarStatusPedido(
                 empresaId,
                 id,
-                status
+                status,
+                req
             );
 
             if (!pedido) {

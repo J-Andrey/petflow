@@ -145,7 +145,9 @@ function securityMiddleware(app) {
 
     /* Logs */
 
-    app.use(morgan("dev"));
+    // Nunca registrar query strings: confirmação e recuperação contêm tokens.
+    app.use(morgan((tokens, req, res) =>
+        [tokens.method(req, res), req.path, tokens.status(req, res), tokens["response-time"](req, res)].join(" ")));
 
     /* Rate Limit */
 

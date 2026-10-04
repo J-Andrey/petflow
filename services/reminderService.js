@@ -69,7 +69,8 @@ async function createAppointmentReminders() {
             clienteId: item.cliente_id,
             titulo,
             mensagem,
-            tipo
+            tipo,
+            chaveEvento: "agenda-"+item.id+"-"+formatDate(item.data)
         });
 
         if (!created || !item.email) {
@@ -88,7 +89,8 @@ async function createAppointmentReminders() {
             to: item.email,
             subject: template.subject,
             html: template.html,
-            text: template.text
+            text: template.text,
+            idempotencyKey: "lembrete-"+created.id
         });
     }
 }
@@ -113,7 +115,8 @@ async function createBirthdayMessages() {
             clienteId: cliente.id,
             titulo,
             mensagem,
-            tipo: "SISTEMA"
+            tipo: "SISTEMA",
+            chaveEvento: "aniversario-"+cliente.id+"-"+new Date().getFullYear()
         });
 
         if (!created || !cliente.email) {
@@ -128,44 +131,17 @@ async function createBirthdayMessages() {
             to: cliente.email,
             subject: template.subject,
             html: template.html,
-            text: template.text
+            text: template.text,
+            idempotencyKey: "lembrete-"+created.id
         });
     }
 }
 
-async function createNotificationOncePerDay({ clienteId, titulo, mensagem, tipo }) {
-    const existing = await db.query(
-        `
-            SELECT id
-            FROM notificacoes
-            WHERE cliente_id = $1
-              AND titulo = $2
-              AND tipo = $3
-              AND DATE(enviada_em) = CURRENT_DATE
-            LIMIT 1
-        `,
-        [clienteId, titulo, tipo]
-    );
-
-    if (existing.rows[0]) {
-        return null;
-    }
-
-    const { rows } = await db.query(
-        `
-            INSERT INTO notificacoes (
-                cliente_id,
-                titulo,
-                mensagem,
-                tipo
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING *
-        `,
-        [clienteId, titulo, mensagem, tipo]
-    );
-
-    return rows[0];
+async function createNotificationOncePerDay({clienteId,titulo,mensagem,tipo,chaveEvento}) {
+    const {rows}=await db.query(
+        "INSERT INTO notificacoes(cliente_id,titulo,mensagem,tipo,chave_evento) VALUES($1,$2,$3,$4,$5) ON CONFLICT(cliente_id,chave_evento) WHERE chave_evento IS NOT NULL DO NOTHING RETURNING *",
+        [clienteId,titulo,mensagem,tipo,chaveEvento]);
+    return rows[0]||null;
 }
 
 function classifyAppointment(serviceName) {

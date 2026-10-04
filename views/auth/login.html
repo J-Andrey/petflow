@@ -105,8 +105,10 @@
                 </div>
                 <div class="form-group field-wide">
                     <label for="registerSenha">Senha</label>
-                    <input class="form-control" type="password" id="registerSenha" name="senha" minlength="6" maxlength="50" required>
+                    <input class="form-control" type="password" id="registerSenha" name="senha" minlength="8" maxlength="72" required>
                 </div>
+                <label><input type="checkbox" name="aceite_privacidade" required> Li e aceito a <a href="/politica-de-privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</label>
+                <label><input type="checkbox" name="aceite_termos" required> Li e aceito os <a href="/termos-de-uso" target="_blank" rel="noopener">Termos de Uso</a>.</label>
                 <button class="btn btn-primary" type="submit">Enviar cadastro</button>
                 <p class="login-note" id="registerStatus"></p>
             </form>

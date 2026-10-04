@@ -138,7 +138,7 @@ router.get(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 
@@ -160,7 +160,7 @@ router.get(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 

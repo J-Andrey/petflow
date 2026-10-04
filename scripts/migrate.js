@@ -20,6 +20,7 @@ async function run() {
     const client = await pool.connect();
 
     try {
+        await client.query("SELECT pg_advisory_lock(728431105)");
         await client.query(`
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 nome VARCHAR(255) PRIMARY KEY,
@@ -65,6 +66,7 @@ async function run() {
 
         console.log("Banco de dados atualizado com sucesso.");
     } finally {
+        await client.query("SELECT pg_advisory_unlock(728431105)").catch(() => {});
         client.release();
         await pool.end();
     }
@@ -72,6 +74,6 @@ async function run() {
 
 run().catch((error) => {
     console.error("Erro ao atualizar o banco de dados.");
-    console.error(error);
+    console.error(error.code || "MIGRATION_FAILED");
     process.exit(1);
 });

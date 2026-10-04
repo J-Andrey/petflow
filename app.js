@@ -69,6 +69,13 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 ================================================== */
 
 const app = express();
+app.get("/api/health", (req,res) => res.set("Cache-Control","no-store").json({success:true,status:"alive"}));
+app.get("/api/readiness", async (req,res) => {
+    try {
+        const ready=await require("./services/healthService").readiness(require("./database/connection"));
+        res.set("Cache-Control","no-store").status(ready?200:503).json({success:ready,status:ready?"ready":"not_ready"});
+    } catch { res.status(503).json({success:false,status:"not_ready"}); }
+});
 
 app.set("trust proxy", 1);
 
@@ -209,6 +216,8 @@ app.get("/api", (request, response) => {
 app.use("/api/auth", authRoutes);
 
 app.use("/api/public/pagamentos", publicPaymentRoutes);
+app.use("/api/public", require("./routes/deliveryRoutes"));
+app.use("/api/public/clientes/direitos", require("./routes/customerRightsRoutes"));
 
 app.use("/api/public", publicCatalogRoutes);
 
@@ -247,6 +256,7 @@ app.use("/api/financeiro", financeiroRoutes);
 ========================== */
 
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api", require("./routes/professionalRoutes"));
 
 /* ==================================================
    ROTA NÃO ENCONTRADA

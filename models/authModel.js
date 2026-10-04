@@ -1,176 +1,27 @@
 "use strict";
-
-/* ==================================================
-   DATABASE
-================================================== */
-
 const db = require("../database/connection");
-
-/* ==================================================
-   BUSCAR POR E-MAIL
-================================================== */
-
+const { hashToken } = require("../services/sessionService");
 async function findByEmail(email) {
-
-    const result = await db.query(
-
-        `
-            SELECT
-
-                id,
-
-                get_petflow_empresa_id() AS empresa_id,
-
-                nome,
-
-                email,
-
-                senha_hash AS senha,
-
-                perfil AS cargo,
-
-                ativo AS status
-
-            FROM usuarios
-
-            WHERE LOWER(email) = LOWER($1)
-
-            LIMIT 1
-        `,
-
-        [email]
-
-    );
-
-    return result.rows[0] || null;
-
+    const { rows } = await db.query(`SELECT id, empresa_id, nome, email, senha_hash AS senha,
+        perfil AS cargo, ativo AS status, sessao_versao FROM usuarios WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email]);
+    return rows[0] || null;
 }
-
-/* ==================================================
-   BUSCAR POR ID
-================================================== */
-
-async function findById(id) {
-
-    const result = await db.query(
-
-        `
-            SELECT
-
-                id,
-
-                get_petflow_empresa_id() AS empresa_id,
-
-                nome,
-
-                email,
-
-                perfil AS cargo,
-
-                ativo AS status,
-
-                created_at,
-
-                updated_at
-
-            FROM usuarios
-
-            WHERE id = $1
-
-            LIMIT 1
-        `,
-
-        [id]
-
-    );
-
-    return result.rows[0] || null;
-
+async function findById(id, empresaId) {
+    const { rows } = await db.query(`SELECT id, empresa_id, nome, email, perfil AS cargo,
+        ativo AS status, sessao_versao FROM usuarios WHERE id=$1 AND empresa_id=$2`, [id, empresaId]);
+    return rows[0] || null;
 }
-
-/* ==================================================
-   ATUALIZAR ÚLTIMO LOGIN
-================================================== */
-
-async function updateLastLogin(id) {
-
-    await db.query(
-
-        `
-            UPDATE usuarios
-
-            SET ultimo_login = NOW()
-
-            WHERE id = $1
-        `,
-
-        [id]
-
-    );
-
+async function updateLastLogin(id) { await db.query("UPDATE usuarios SET ultimo_login=NOW() WHERE id=$1", [id]); }
+async function revokeSessions(id, empresaId) {
+    await db.query("UPDATE usuarios SET sessao_versao=sessao_versao+1 WHERE id=$1 AND empresa_id=$2", [id, empresaId]);
 }
-
 async function setPasswordResetToken(id, token, expiresAt) {
-    await db.query(
-        `
-            UPDATE usuarios
-            SET
-                token_recuperacao = $1,
-                token_expiracao = $2,
-                updated_at = NOW()
-            WHERE id = $3
-        `,
-        [token, expiresAt, id]
-    );
+    await db.query("UPDATE usuarios SET token_recuperacao=$1, token_expiracao=$2 WHERE id=$3 AND ativo=TRUE", [hashToken(token), expiresAt, id]);
 }
-
-async function findByPasswordResetToken(token) {
-    const result = await db.query(
-        `
-            SELECT id
-            FROM usuarios
-            WHERE token_recuperacao = $1
-              AND token_expiracao > NOW()
-              AND ativo = TRUE
-            LIMIT 1
-        `,
-        [token]
-    );
-
-    return result.rows[0] || null;
+async function consumePasswordResetToken(token, senhaHash) {
+    const { rowCount } = await db.query(`UPDATE usuarios SET senha_hash=$1, token_recuperacao=NULL,
+        token_expiracao=NULL, sessao_versao=sessao_versao+1
+        WHERE token_recuperacao=$2 AND token_expiracao>NOW() AND ativo=TRUE`, [senhaHash, hashToken(token)]);
+    return rowCount === 1;
 }
-
-async function updatePassword(id, senhaHash) {
-    await db.query(
-        `
-            UPDATE usuarios
-            SET
-                senha_hash = $1,
-                token_recuperacao = NULL,
-                token_expiracao = NULL,
-                updated_at = NOW()
-            WHERE id = $2
-        `,
-        [senhaHash, id]
-    );
-}
-
-/* ==================================================
-   EXPORTAÇÃO
-================================================== */
-
-module.exports = {
-
-    findByEmail,
-
-    findById,
-
-    updateLastLogin,
-
-    setPasswordResetToken,
-
-    findByPasswordResetToken,
-
-    updatePassword
-
-};
+module.exports = { findByEmail, findById, updateLastLogin, revokeSessions, setPasswordResetToken, consumePasswordResetToken };

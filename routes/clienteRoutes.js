@@ -114,7 +114,7 @@ router.get(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 
@@ -136,7 +136,7 @@ router.get(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 
@@ -162,7 +162,7 @@ router.post(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 
@@ -188,7 +188,7 @@ router.put(
 
         "ADMIN",
 
-        "FUNCIONARIO"
+        "GERENTE"
 
     ),
 

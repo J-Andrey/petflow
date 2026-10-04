@@ -80,7 +80,8 @@ class ItemVendaModel {
                 quantidade,
                 preco_unitario,
                 desconto,
-                subtotal
+                subtotal,
+                empresa_id
             )
             VALUES (
                 $1,
@@ -88,7 +89,8 @@ class ItemVendaModel {
                 $3,
                 $4,
                 $5,
-                $6
+                $6,
+                (SELECT empresa_id FROM vendas WHERE id=$1)
             )
             RETURNING *;
         `;
