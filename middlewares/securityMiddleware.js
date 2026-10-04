@@ -26,7 +26,7 @@ const limiter = rateLimit({
 
     windowMs: 15 * 60 * 1000,
 
-    max: process.env.NODE_ENV === "production" ?100 : 1000,
+    max: 1000,
 
     standardHeaders: true,
 
@@ -105,6 +105,8 @@ function securityMiddleware(app) {
                 "script-src": [
                     "'self'",
                     "'unsafe-inline'",
+                    "https://maps.googleapis.com",
+                    "https://maps.gstatic.com",
                     "https://cdnjs.cloudflare.com"
                 ],
                 "style-src": [
@@ -119,10 +121,13 @@ function securityMiddleware(app) {
                 ],
                 "connect-src": [
                     "'self'",
+                    "https://maps.googleapis.com",
+                    "https://maps.gstatic.com",
                     "https://viacep.com.br",
                     "https://api.pagseguro.com",
                     "https://sandbox.api.pagseguro.com"
-                ]
+                ],
+                "img-src": ["'self'","data:","https://res.cloudinary.com","https://maps.googleapis.com","https://maps.gstatic.com","https://*.googleapis.com","https://*.gstatic.com"]
             }
         }
     }));

@@ -63,7 +63,7 @@ function setupPublicLogin() {
             );
 
             saveCustomer(payload.data);
-            window.location.href = "/";
+            window.location.href = new URLSearchParams(location.search).get("retorno")==="sacola"?"/sacola":"/";
         } catch (error) {
             setStatus(status, error.message);
         }
@@ -72,6 +72,7 @@ function setupPublicLogin() {
 
 function setupPublicRegister() {
     const form = document.getElementById("publicRegisterForm");
+    try { const address=JSON.parse(sessionStorage.getItem("petflow_delivery_address")||"null"); if(form&&address) Object.entries(address).forEach(([key,value])=>{if(form.elements[key])form.elements[key].value=value;}); } catch {}
 
     form?.addEventListener("submit", async event => {
         event.preventDefault();
@@ -168,6 +169,7 @@ async function setupPublicAccount() {
 
             sessionStorage.setItem("petflow_customer_user", JSON.stringify(payload.data));
             window.PetFlowPublicHeader?.update();
+            sessionStorage.removeItem("petflow_delivery_address");
             setStatus(status, "Dados atualizados com sucesso.");
         } catch (error) {
             setStatus(status, error.message);
@@ -272,6 +274,7 @@ function renderOrders(list, orders) {
             : [];
 
         return `
+            ${order.status === "SAIU_PARA_ENTREGA" ? `<a class="btn-secondary" href="/entrega.html?pedido=${encodeURIComponent(order.id)}">Rastrear pedido</a>` : ""}
             <article class="order-card">
                 <header>
                     <div>

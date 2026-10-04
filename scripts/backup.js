@@ -1,5 +1,5 @@
 "use strict";
-require("dotenv").config({quiet:true});
+require("dotenv").config({quiet:true,path:process.env.PETFLOW_ENV_FILE||".env"});
 const fs=require("node:fs"),path=require("node:path"),{spawnSync}=require("node:child_process");
 const {buildDbOptions}=require("../config/dbOptions");
 function run() {
@@ -13,7 +13,7 @@ function run() {
         PGPORT:url?(url.port||"5432"):String(options.port||5432),
         PGUSER:url?decodeURIComponent(url.username):options.user,PGPASSWORD:url?decodeURIComponent(url.password):options.password};
     if(process.env.DB_SSL==="true")env.PGSSLMODE="require";
-    function exec(binary,args){const r=spawnSync(binary,args,{env,stdio:["ignore","ignore","pipe"]});if(r.error||r.status!==0)throw new Error(binary+" falhou. Verifique a instalação, as permissões e a conexão; detalhes foram omitidos para proteger credenciais.");}
+    function exec(binary,args){const executable=process.env.PGBIN?path.join(process.env.PGBIN,binary):binary;const r=spawnSync(executable,args,{env,stdio:["ignore","ignore","pipe"]});if(r.error||r.status!==0)throw new Error(binary+" falhou. Verifique a instalação, as permissões e a conexão; detalhes foram omitidos para proteger credenciais.");}
     const target=path.resolve(file);
     if(mode==="backup"){
         if(fs.existsSync(target))throw new Error("O arquivo já existe. Escolha outro destino.");

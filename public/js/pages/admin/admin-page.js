@@ -1210,6 +1210,12 @@
 
     function buildSaleStatusOptions(currentStatus) {
         return getSaleStatusOptions()
+            .filter(option => option.value===currentStatus || ({
+                PENDENTE:["AGUARDANDO_PAGAMENTO","CANCELADA"],
+                AGUARDANDO_PAGAMENTO:["CANCELADA"],PAGAMENTO_APROVADO:["EM_SEPARACAO"],
+                EM_SEPARACAO:["SAIU_PARA_ENTREGA"],SAIU_PARA_ENTREGA:["ENTREGUE"],
+                ENTREGUE:["FINALIZADA"],FINALIZADA:[],CANCELADA:[]
+            }[currentStatus]||[]).includes(option.value))
             .map(option => {
                 const selected =
                     String(option.value) === String(currentStatus)

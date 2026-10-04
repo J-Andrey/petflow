@@ -216,6 +216,8 @@ app.get("/api", (request, response) => {
 app.use("/api/auth", authRoutes);
 
 app.use("/api/public/pagamentos", publicPaymentRoutes);
+app.use("/api/entregas", require("./routes/trackingRoutes"));
+app.use("/api/cancelamentos", require("./routes/cancellationRoutes"));
 app.use("/api/public", require("./routes/deliveryRoutes"));
 app.use("/api/public/clientes/direitos", require("./routes/customerRightsRoutes"));
 
@@ -256,6 +258,7 @@ app.use("/api/financeiro", financeiroRoutes);
 ========================== */
 
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/clinica", require("./routes/clinicalRoutes"));
 app.use("/api", require("./routes/professionalRoutes"));
 
 /* ==================================================

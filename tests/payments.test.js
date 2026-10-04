@@ -13,7 +13,7 @@ function setup(order) {
     const model={async atualizarPagamentoPorReferencia(ref,data){effects.updates++;return {...order,status:data.status};},async buscarPorId(){return {...order,cliente:null};}};
     const db={async connect(){return client;},async transaction(fn){return fn(client);}};
     const service=load("services/vendaService.js",{
-        "../database/connection":db,"../models/vendaModel":model,"../models/itemVendaModel":{},
+        "../database/connection":db,"../config/env":{JWT_SECRET:"test"},"./deliveryService":{createDeliveryService(){return {};}},"./couponService":{},"../models/vendaModel":model,"../models/itemVendaModel":{},
         "./movimentacaoEstoqueService":{async saida(){effects.stock++;}},
         "./financeiroService":{async gerarContaReceber(){effects.finance++;}},
         "./reservationService":{async release(){calls.push({sql:"RELEASE"});}},

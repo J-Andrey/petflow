@@ -261,7 +261,7 @@ async function remove(id, empresaId) {
     await db.query(
 
         `
-            DELETE FROM pets
+            UPDATE pets SET ativo=FALSE,updated_at=NOW()
 
             WHERE
 

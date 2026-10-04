@@ -8,7 +8,7 @@
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <link rel="stylesheet" href="/css/layout/public-header.css?v=20260811-1">
-    <link rel="stylesheet" href="/css/pages/public-cart.css">
+    <link rel="stylesheet" href="/css/pages/public-cart.css"><link rel="stylesheet" href="/css/pages/cart-sidebar.css">
 </head>
 <body>
     <header class="cart-topbar">
@@ -36,6 +36,20 @@
             <aside class="cart-summary" aria-labelledby="summaryTitle">
                 <h2 id="summaryTitle">Resumo</h2>
                 <div class="customer-card" id="cartCustomer"></div>
+                <form class="cart-form" id="deliveryForm">
+                    <h3>Entrega</h3>
+                    <label>CEP <input class="form-control" name="cep" inputmode="numeric" maxlength="9" required autocomplete="postal-code"></label>
+                    <label>Rua <input class="form-control" name="endereco" maxlength="160" required autocomplete="address-line1"></label>
+                    <label>Número <input class="form-control" name="numero" maxlength="20" required></label>
+                    <label>Complemento <input class="form-control" name="complemento" maxlength="150"></label>
+                    <label>Bairro <input class="form-control" name="bairro" maxlength="80" required></label>
+                    <label>Cidade <input class="form-control" name="cidade" maxlength="80" required></label>
+                    <label>Estado <input class="form-control" name="estado" maxlength="2" required></label>
+                    <button class="btn" type="submit" id="quoteDelivery">Calcular frete</button>
+                    <p id="deliveryStatus" role="status"></p>
+                </form>
+                <form class="cart-form" id="couponForm"><label>Cupom <input class="form-control" name="codigo" maxlength="40"></label><button class="btn" type="submit">Aplicar cupom</button></form>
+                <p id="cartBreakdown"></p>
                 <form class="cart-form" id="cartForm">
                     <label>
                         Observações
@@ -43,11 +57,12 @@
                     </label>
                     <div class="cart-total">
                         <span>Total</span>
-                        <strong id="cartTotal">R$ 0,00</strong>
+                        <strong id="cartTotal">—</strong>
                     </div>
                     <button class="btn btn-primary" type="submit">Finalizar pedido</button>
                     <p class="cart-status" id="cartStatus" role="status"></p>
                 </form>
+                <a class="btn" href="/#products" id="chooseMore">Escolher mais produtos</a>
             </aside>
         </section>
     </main>

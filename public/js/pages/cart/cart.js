@@ -1,393 +1,105 @@
 "use strict";
-
-const CART_API = window.location.hostname === "localhost"
-    ? "http://localhost:4500/api/public"
-    : "/api/public";
-
-let cartProducts = [];
-let cart = readCart();
-let customer = null;
-
-document.addEventListener("DOMContentLoaded", () => {
-    setupCartPage();
-});
-
-document.addEventListener("petflow:customer-logout", async () => {
-    cart = {};
-    persistCart();
-    renderCart();
-    await renderCustomer();
-});
-
-async function setupCartPage() {
-    try {
-        const response = await fetch(`${CART_API}/produtos`);
-        const payload = await response.json();
-
-        if (!response.ok) {
-            throw new Error(payload.message || "Produtos indisponíveis.");
+(()=>{
+    const $=id=>document.getElementById(id),token=()=>sessionStorage.getItem("petflow_customer_token");
+    const read=(key,fallback)=>{try{return JSON.parse(sessionStorage.getItem(key))||fallback;}catch{return fallback;}};
+    const money=cents=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+    let products=[],cart=read("petflow_public_cart",{}),quote=null,totals=null,coupon="",busy=false,revision=0,timer;
+    const address=()=>Object.fromEntries(new FormData($("deliveryForm")));
+    const items=()=>Object.entries(cart).map(([produto_id,quantidade])=>({produto_id,quantidade:Number(quantidade)}));
+    function persist(){sessionStorage.setItem("petflow_public_cart",JSON.stringify(cart));window.PetFlowPublicHeader?.update();if(parent!==window)parent.postMessage({type:"petflow:cart-update"},location.origin);}
+    async function api(path,method="GET",body,authenticated=false) {
+        const response=await fetch("/api/public/"+path,{method,headers:{"Content-Type":"application/json",...(authenticated&&token()?{Authorization:"Bearer "+token()}:{})},body:body?JSON.stringify(body):undefined});
+        const payload=await response.json();if(!response.ok)throw new Error(payload.message||"Não foi possível concluir a operação.");return payload;
+    }
+    function summary() {
+        const validQuote=quote&&new Date(quote.expira_em)>new Date();
+        $("cartTotal").textContent=validQuote&&totals?money(totals.subtotal_centavos-totals.desconto_centavos+quote.frete_centavos):"—";
+        $("cartBreakdown").textContent=totals?"Produtos: "+money(totals.subtotal_centavos)+" · Desconto: "+money(totals.desconto_centavos)+" · Subtotal: "+money(totals.subtotal_centavos-totals.desconto_centavos)+(validQuote?" · Frete: "+money(quote.frete_centavos):"")+" · Economia: "+money(totals.desconto_centavos):"";
+        $("cartForm").querySelector("button[type=submit]").disabled=busy||!token()||!validQuote||!totals||!items().length;
+    }
+    function render(){
+        $("cartItems").replaceChildren();
+        for(const [id,quantity] of Object.entries(cart)){
+            const product=products.find(p=>p.id===id);
+            const row=document.createElement("article");row.className="cart-item";
+            const image=document.createElement("img");image.src=product?.foto||"/images/logo/petflow-logo.png";image.alt=product?.nome||"Produto indisponível";
+            const info=document.createElement("div");const name=document.createElement("strong");name.textContent=product?.nome||"Produto indisponível";const price=document.createElement("span");price.textContent=product?money(Math.round(Number(product.preco)*100)):"Remova este produto";info.append(name,price);
+            const input=document.createElement("input");input.className="form-control";input.type="number";input.min="1";input.step="1";input.max=String(product?.estoque_disponivel||0);input.value=quantity;input.setAttribute("aria-label","Quantidade de "+name.textContent);
+            input.onchange=()=>{const value=Number(input.value);if(!Number.isInteger(value)||value<1||value>Number(input.max)){input.value=quantity;$("cartStatus").textContent="Quantidade indisponível em estoque.";return;}cart[id]=value;persist();render();refreshTotals();};
+            const remove=document.createElement("button");remove.type="button";remove.textContent="Remover";remove.onclick=()=>{delete cart[id];persist();render();refreshTotals();};
+            row.append(image,info,input,remove);$("cartItems").append(row);
         }
-
-        cartProducts = Array.isArray(payload.data) ? payload.data : [];
-        renderCart();
-        await renderCustomer();
-        setupCartEvents();
-    } catch (error) {
-        renderEmpty(error.message || "Não foi possível carregar sua sacola.");
+        if(!items().length)$("cartItems").textContent="Sua sacola está vazia.";
+        summary();
     }
-}
-
-function setupCartEvents() {
-    document.addEventListener("input", event => {
-        const input = event.target.closest("[data-cart-quantity]");
-
-        if (!input) {
-            return;
-        }
-
-        cart[input.dataset.cartQuantity] = Math.max(1, Number(input.value || 1));
-        persistCart();
-        renderCart();
-    });
-
-    document.addEventListener("click", event => {
-        const remove = event.target.closest("[data-cart-remove]");
-
-        if (!remove) {
-            return;
-        }
-
-        delete cart[remove.dataset.cartRemove];
-        persistCart();
-        renderCart();
-    });
-
-    document.getElementById("cartForm")?.addEventListener("submit", submitOrder);
-}
-
-function renderCart() {
-    const list = document.getElementById("cartItems");
-    const total = document.getElementById("cartTotal");
-    const items = getCartItems();
-
-    if (!list || !total) {
-        return;
+    async function refreshTotals(){
+        const version=++revision;totals=null;summary();
+        if(!items().length)return;
+        try{
+            const result=await api("cupons/validar","POST",{itens:items(),codigo:coupon},true);
+            if(version!==revision)return;
+            totals=result.data;$("cartStatus").textContent="";summary();
+        }catch(error){if(version===revision){$("cartStatus").textContent=error.message;summary();}}
     }
-
-    if (!items.length) {
-        renderEmpty("Sua sacola está vazia.");
-        total.textContent = currency(0);
-        return;
+    let addressRevision=0;
+    async function calculate(){
+        const version=++addressRevision;quote=null;summary();
+        const form=$("deliveryForm");
+        if(!form.checkValidity()){$("quoteDelivery").hidden=false;return;}
+        const current=address();sessionStorage.setItem("petflow_delivery_address",JSON.stringify(current));
+        $("quoteDelivery").hidden=!!token();$("deliveryStatus").textContent="Consultando distância e frete...";
+        try{
+            const result=await api("frete","POST",{endereco:current});
+            if(version!==addressRevision)return;
+            quote=result.data;$("deliveryStatus").textContent="Entrega: "+money(quote.frete_centavos)+" · "+(quote.distancia_m/1000).toFixed(1)+" km";summary();
+        }catch(error){if(version===addressRevision){$("deliveryStatus").textContent=error.message;$("quoteDelivery").hidden=false;summary();}}
     }
-
-    list.innerHTML = items.map(({ product, quantity }) => {
-        const id = getProductId(product);
-
-        return `
-            <article class="cart-item">
-                <img src="${escapeHtml(product.foto || "/images/products/petflow-prime-racao.jpg")}" alt="${escapeHtml(product.nome)}">
-                <div>
-                    <strong>${escapeHtml(product.nome)}</strong>
-                    <span>${currency(product.preco)}</span>
-                </div>
-                <input class="form-control" type="number" min="1" step="1" value="${quantity}" data-cart-quantity="${escapeHtml(id)}" aria-label="Quantidade">
-                <button class="remove-button" type="button" data-cart-remove="${escapeHtml(id)}" aria-label="Remover item">
-                    <i class="fa-solid fa-trash"></i>
-                </button>
-            </article>
-        `;
-    }).join("");
-
-    total.textContent = currency(getCartTotal(items));
-}
-
-function renderEmpty(message) {
-    const list = document.getElementById("cartItems");
-
-    if (!list) {
-        return;
-    }
-
-    list.innerHTML = `
-        <div class="empty-cart">
-            <i class="fa-solid fa-bag-shopping"></i>
-            <strong>Sua sacola está vazia.</strong>
-            <p>${escapeHtml(message)}</p>
-            <a class="btn-secondary" href="/#products">Ver produtos</a>
-        </div>
-    `;
-}
-
-async function renderCustomer() {
-    const container = document.getElementById("cartCustomer");
-    const submit = document.querySelector("#cartForm button[type='submit']");
-    const token = getToken();
-
-    if (!container || !submit) {
-        return;
-    }
-
-    if (!token) {
-        submit.disabled = true;
-        container.innerHTML = `
-            <div class="customer-card-inner is-warning">
-                <strong>Entre para finalizar</strong>
-                <p>Crie sua conta ou entre para usar seu endereço salvo na PetFlow.</p>
-                <a class="btn-secondary" href="/login">Entrar ou cadastrar</a>
-            </div>
-        `;
-        return;
-    }
-
-    try {
-        customer = await fetchCustomerProfile();
-        const addressComplete = hasDeliveryAddress(customer);
-        const contact = [customer.telefone, customer.email].filter(Boolean).join(" - ");
-
-        submit.disabled = !addressComplete;
-        container.innerHTML = `
-            <div class="customer-card-inner ${addressComplete ? "" : "is-warning"}">
-                <div>
-                    <span>Cliente</span>
-                    <strong>${escapeHtml(customer.nome || "Cliente PetFlow")}</strong>
-                    <p>${escapeHtml(contact)}</p>
-                </div>
-                <div>
-                    <span>Endereço de entrega</span>
-                    <strong>${escapeHtml(formatAddress(customer) || "Endereço incompleto")}</strong>
-                    <p>${addressComplete ? "Esse endereço será usado no pedido." : "Atualize seu endereço antes de finalizar."}</p>
-                </div>
-                <a class="btn-secondary" href="/conta">Editar meus dados</a>
-            </div>
-        `;
-    } catch {
-        clearCartSession();
-        submit.disabled = true;
-        container.innerHTML = `
-            <div class="customer-card-inner is-warning">
-                <strong>Sessão expirada</strong>
-                <p>Entre novamente para finalizar seu pedido.</p>
-                <a class="btn-secondary" href="/login">Entrar novamente</a>
-            </div>
-        `;
-    }
-}
-
-function clearCartSession() {
-    sessionStorage.removeItem("petflow_customer_token");
-    sessionStorage.removeItem("petflow_customer_user");
-    sessionStorage.removeItem("petflow_public_favorites");
-    sessionStorage.removeItem("petflow_public_cart");
-    localStorage.removeItem("petflow_customer_token");
-    localStorage.removeItem("petflow_customer_user");
-    localStorage.removeItem("petflow_public_favorites");
-    localStorage.removeItem("petflow_public_cart");
-    cart = {};
-    persistCart();
-}
-
-async function submitOrder(event) {
-    event.preventDefault();
-
-    const status = document.getElementById("cartStatus");
-    const token = getToken();
-    const items = getCartItems();
-
-    if (!items.length) {
-        setStatus(status, "Adicione produtos antes de finalizar.");
-        return;
-    }
-
-    if (!token) {
-        setStatus(status, "Entre na sua conta para finalizar o pedido.");
-        await renderCustomer();
-        return;
-    }
-
-    if (!customer || !hasDeliveryAddress(customer)) {
-        setStatus(status, "Atualize seu endereço antes de finalizar.");
-        await renderCustomer();
-        return;
-    }
-
-    const data = Object.fromEntries(new FormData(event.target).entries());
-    setStatus(status, "Finalizando pedido...");
-
-    try {
-        const response = await fetch(`${CART_API}/pedidos`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                formaPagamento: "PAGBANK",
-                observacoes: data.observacoes,
-                itens: items.map(({ product, quantity }) => ({
-                    produto_id: product.id,
-                    quantidade: quantity,
-                    valor_unitario: Number(product.preco || 0)
-                }))
-            })
+    document.addEventListener("DOMContentLoaded",async()=>{
+        if(new URLSearchParams(location.search).get("sidebar")==="1")document.body.classList.add("in-cart-sidebar");
+        $("chooseMore").onclick=event=>{if(parent!==window){event.preventDefault();parent.postMessage({type:"petflow:cart-close"},location.origin);}};
+        $("deliveryForm").onsubmit=event=>{event.preventDefault();calculate();};
+        $("deliveryForm").oninput=()=>{
+            addressRevision++;quote=null;summary();clearTimeout(timer);
+            sessionStorage.setItem("petflow_delivery_address",JSON.stringify(address()));
+            timer=setTimeout(calculate,700);
+        };
+        let lastCep="";
+        $("deliveryForm").elements.cep.addEventListener("change",async()=>{
+            const value=$("deliveryForm").elements.cep.value.replace(/\D/g,"");
+            if(value.length!==8||value===lastCep)return;lastCep=value;
+            try{
+                const result=await api("cep/"+value);
+                if($("deliveryForm").elements.cep.value.replace(/\D/g,"")!==value)return;
+                Object.entries(result.data).forEach(([key,value])=>{if($("deliveryForm").elements[key])$("deliveryForm").elements[key].value=value;});
+                calculate();
+            }catch(error){$("deliveryStatus").textContent=error.message;}
         });
-        const payload = await response.json();
-
-        if (!response.ok) {
-            throw new Error(payload.message || "Não foi possível finalizar o pedido.");
-        }
-
-        cart = {};
-        persistCart();
-        renderCart();
-        event.target.reset();
-        setStatus(status, "Pedido recebido. Abrindo checkout seguro do PagBank...");
-
-        await startPayment(
-            payload.payment?.vendaId ||
-            payload.data?.id,
-            token,
-            status
-        );
-    } catch (error) {
-        setStatus(status, error.message || "Não foi possível finalizar o pedido.");
-    }
-}
-
-async function startPayment(vendaId, token, status) {
-    if (!vendaId) {
-        setStatus(
-            status,
-            "Pedido criado, mas não foi possível abrir o checkout do PagBank."
-        );
-        return;
-    }
-
-    try {
-        const response = await fetch(`${CART_API}/pagamentos`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                vendaId
-            })
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                payload.message ||
-                "Não foi possível abrir o checkout do PagBank."
-            );
-        }
-
-        if (payload.payment?.checkoutUrl) {
-            window.location.href = payload.payment.checkoutUrl;
-            return;
-        }
-
-        setStatus(
-            status,
-            "Pedido criado. Acesse seus pedidos para acompanhar o pagamento."
-        );
-    } catch (error) {
-        setStatus(
-            status,
-            error.message ||
-            "Pedido criado, mas o checkout do PagBank não foi aberto."
-        );
-    }
-}
-
-async function fetchCustomerProfile() {
-    const response = await fetch(`${CART_API}/clientes/me`, {
-        headers: {
-            Authorization: `Bearer ${getToken()}`
-        }
+        $("couponForm").onsubmit=event=>{event.preventDefault();coupon=$("couponForm").elements.codigo.value.trim().toUpperCase();refreshTotals();};
+        $("cartForm").onsubmit=async event=>{
+            event.preventDefault();if(busy||!quote||!totals)return;busy=true;summary();
+            try{
+                const order=await api("pedidos","POST",{formaPagamento:"PAGBANK",observacoes:$("cartForm").elements.observacoes.value,itens:items(),cupom_codigo:coupon,cotacao_frete:quote.token,endereco_entrega:address()},true);
+                cart={};persist();render();totals=null;
+                $("cartStatus").textContent="Pedido criado. Abrindo pagamento...";
+                const payment=await api("pagamentos","POST",{vendaId:order.data.id},true);
+                if(!payment.payment?.checkoutUrl)throw new Error("Pedido criado. Acesse Meus pedidos para continuar o pagamento.");
+                window.top.location.href=payment.payment.checkoutUrl;
+            }catch(error){$("cartStatus").textContent=error.message;}finally{busy=false;summary();}
+        };
+        try{
+            products=(await api("produtos")).data;render();
+            let saved=read("petflow_delivery_address",null);
+            if(token()){
+                const profile=(await api("clientes/me","GET",undefined,true)).data;
+                $("cartCustomer").textContent="Pedido de "+profile.nome;
+                saved=saved||profile;
+            }else{
+                const link=document.createElement("a");link.href="/login?retorno=sacola";link.target="_top";link.textContent="Entre ou cadastre-se para finalizar";$("cartCustomer").append(link);
+            }
+            if(saved)Object.entries(saved).forEach(([key,value])=>{if($("deliveryForm").elements[key])$("deliveryForm").elements[key].value=value||"";});
+            await refreshTotals();await calculate();
+        }catch(error){$("cartStatus").textContent=error.message;}
+        setInterval(summary,15000);
     });
-    const payload = await response.json();
+})();
 
-    if (!response.ok) {
-        throw new Error(payload.message || "Cliente não autenticado.");
-    }
-
-    sessionStorage.setItem("petflow_customer_user", JSON.stringify(payload.data));
-    window.PetFlowPublicHeader?.update();
-    return payload.data;
-}
-
-function getCartItems() {
-    return Object.entries(cart)
-        .map(([id, quantity]) => {
-            const product = cartProducts.find(item => getProductId(item) === String(id));
-
-            return product
-                ? { product, quantity: Math.max(1, Number(quantity || 1)) }
-                : null;
-        })
-        .filter(Boolean);
-}
-
-function getCartTotal(items) {
-    return items.reduce((sum, item) => sum + Number(item.product.preco || 0) * item.quantity, 0);
-}
-
-function getProductId(product) {
-    return String(product.id || product.sku || product.nome);
-}
-
-function readCart() {
-    try {
-        return JSON.parse(sessionStorage.getItem("petflow_public_cart") || "{}") || {};
-    } catch {
-        return {};
-    }
-}
-
-function persistCart() {
-    sessionStorage.setItem("petflow_public_cart", JSON.stringify(cart));
-    window.PetFlowPublicHeader?.update();
-}
-
-function getToken() {
-    return sessionStorage.getItem("petflow_customer_token");
-}
-
-function hasDeliveryAddress(data) {
-    return Boolean(data?.endereco && data?.numero && data?.bairro && data?.cidade && data?.estado);
-}
-
-function formatAddress(data) {
-    return [
-        data.endereco,
-        data.numero,
-        data.complemento,
-        data.bairro,
-        data.cidade,
-        data.estado
-    ].filter(Boolean).join(", ");
-}
-
-function currency(value) {
-    return Number(value || 0).toLocaleString("pt-BR", {
-        style: "currency",
-        currency: "BRL"
-    });
-}
-
-function setStatus(element, message) {
-    if (element) {
-        element.textContent = message || "";
-    }
-}
-
-function escapeHtml(value) {
-    return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}

@@ -3,8 +3,10 @@
 const VendaModel = require("../models/vendaModel");
 const VendaService = require("../services/vendaService");
 const pagseguroService = require("../services/pagseguroService");
+const db = require("../database/connection");
 
 async function criarPagamento(request, response, next) {
+    let client;
     try {
         const customer = getAuthenticatedCustomer(request);
         const vendaId =
@@ -26,6 +28,13 @@ async function criarPagamento(request, response, next) {
                 message: "Informe o pedido para pagamento."
             });
         }
+        if(!require("../services/sessionService").UUID.test(vendaId)) {
+            return response.status(400).json({success:false,message:"Pedido inválido."});
+        }
+        client=await db.connect();
+        await client.query("BEGIN");
+        const locked=await client.query("SELECT id FROM vendas WHERE id=$1 AND cliente_id=$2 AND empresa_id=$3 FOR UPDATE",[vendaId,customer.id,customer.empresaId]);
+        if(!locked.rowCount) return response.status(404).json({success:false,message:"Pedido não encontrado."});
 
         const pedido = await VendaModel.buscarPorIdDoCliente(
             vendaId,
@@ -46,6 +55,9 @@ async function criarPagamento(request, response, next) {
                 message: "Este pedido não está aguardando pagamento."
             });
         }
+        if(pedido.reserva_expira_em && new Date(pedido.reserva_expira_em)<=new Date()) {
+            return response.status(409).json({success:false,message:"Reserva expirada. Crie um novo pedido."});
+        }
 
         if (pedido.pagseguro_checkout_url) {
             return response.status(200).json({
@@ -56,6 +68,9 @@ async function criarPagamento(request, response, next) {
         }
 
         const checkout = await pagseguroService.criarCheckout(pedido);
+        if(!checkout.checkoutUrl || !checkout.checkoutId || !/^https:\/\//i.test(checkout.checkoutUrl)) {
+            throw Object.assign(new Error("PagBank não retornou uma URL de pagamento válida."),{status:502});
+        }
 
         const vendaAtualizada =
             await VendaModel.registrarPagamentoPagSeguro(
@@ -71,8 +86,10 @@ async function criarPagamento(request, response, next) {
                     pagseguroQrCodeText: checkout.qrCodeText,
                     pagseguroResponse: checkout.raw,
                     formaPagamento: checkout.paymentMethod
-                }
+                },
+                client
             );
+        await client.query("COMMIT");
 
         return response.status(201).json({
             success: true,
@@ -81,6 +98,8 @@ async function criarPagamento(request, response, next) {
         });
     } catch (error) {
         return next(error);
+    } finally {
+        if(client) { await client.query("ROLLBACK").catch(()=>{}); client.release(); }
     }
 }
 

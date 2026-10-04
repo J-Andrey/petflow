@@ -4,7 +4,7 @@
     if(!token){location.href="/login";return;}
     const form=document.getElementById("requestForm"),status=document.getElementById("status");
     async function request(path,options={}) {
-        const response=await fetch("/api/public/clientes/"+path,{...options,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"}});
+        const response=await fetch(path.startsWith("/api/")?path:"/api/public/clientes/"+path,{...options,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"}});
         if(!response.ok)throw new Error((await response.json()).message||"Não foi possível concluir a operação.");
         return response;
     }
@@ -30,7 +30,11 @@
     form.elements.categoria.onchange=types;types();
     form.onsubmit=async event=>{
         event.preventDefault();const button=form.querySelector("button");button.disabled=true;
-        try {const result=await (await request("direitos/solicitacoes",{method:"POST",body:JSON.stringify(Object.fromEntries(new FormData(form)))})).json();status.textContent=result.message;form.elements.detalhes.value="";await load();}
+        try {
+            const data=Object.fromEntries(new FormData(form));
+            const cancel=data.categoria==="atendimento"&&data.tipo==="CANCELAMENTO";
+            const result=await (await request(cancel?"/api/cancelamentos/cliente/"+data.venda_id:"direitos/solicitacoes",{method:"POST",body:JSON.stringify(cancel?{motivo:data.detalhes}:data)})).json();
+            status.textContent=cancel?result.data.status==="CANCELADA"?"Pedido cancelado.":result.data.protocolo?"Atendimento aberto: "+result.data.protocolo:result.data.message||"Reembolso em processamento. Consulte novamente.":result.message;form.elements.detalhes.value="";await load();}
         catch(error){status.textContent=error.message;}finally{button.disabled=false;}
     };
     document.getElementById("export").onclick=async()=>{

@@ -10,6 +10,12 @@ const {sendOptionalEmail}=require("../services/emailService");
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
 const page=req=>Math.max(1,Math.min(10000,Number.parseInt(req.query.page,10)||1));
 router.use(auth);
+router.post("/lgpd/:id/processar",role("ADMIN"),wrap(async(req,res)=>{
+    if(!UUID.test(req.params.id))return res.status(400).json({success:false,message:"Identificador inválido."});
+    const result=await require("../services/privacyService").processRequest(db,req,req.params.id);
+    await sendOptionalEmail({to:result.email,subject:"PetFlow: protocolo "+result.protocolo,text:result.resposta,idempotencyKey:"lgpd-"+req.params.id});
+    res.json({success:true,data:{protocolo:result.protocolo,resposta:result.resposta}});
+}));
 router.param("id",(req,res,next,id)=>UUID.test(id)?next():res.status(400).json({success:false,message:"Identificador inválido."}));
 router.get("/usuarios",role("ADMIN"),wrap(async(req,res)=>{
     const result=await db.query("SELECT id,nome,email,perfil,ativo,ultimo_login,COUNT(*) OVER() AS total FROM usuarios WHERE empresa_id=$1 AND (nome ILIKE $2 OR email ILIKE $2) ORDER BY nome,id LIMIT 25 OFFSET $3",
@@ -26,6 +32,38 @@ router.get("/auditoria",role("ADMIN"),wrap(async(req,res)=>{
         [req.user.empresaId,"%"+String(req.query.q||"").slice(0,100)+"%",(page(req)-1)*25]);
     res.json({success:true,data:result.rows,page:page(req)});
 }));
+router.get("/cupons",role("ADMIN","GERENTE"),wrap(async(req,res)=>{
+    const result=await db.query("SELECT *,COUNT(*) OVER() AS total FROM cupons WHERE empresa_id=$1 AND (codigo ILIKE $2 OR descricao ILIKE $2) ORDER BY created_at DESC,id LIMIT 25 OFFSET $3",
+        [req.user.empresaId,"%"+String(req.query.q||"").slice(0,100)+"%",(page(req)-1)*25]);
+    res.json({success:true,data:result.rows,page:page(req)});
+}));
+async function saveCoupon(req,res) {
+    const d=req.body,code=String(d.codigo||"").trim().toUpperCase();
+    const money=value=>typeof value!=="boolean"&&value!==null&&value!==""&&Number.isFinite(Number(value))&&Number(value)>=0&&Number.isSafeInteger(Math.round(Number(value)*100))&&Number(value)<=9999999;
+    const optionalLimit=value=>value==null||(Number.isInteger(Number(value))&&Number(value)>0);
+    const starts=new Date(d.inicia_em),ends=d.expira_em?new Date(d.expira_em):null;
+    if(!/^[A-Z0-9_-]{3,40}$/.test(code)||typeof d.descricao!=="string"||d.descricao.length>200||
+        !["PERCENTUAL","FIXO"].includes(d.tipo)||!money(d.valor)||Number(d.valor)<=0||
+        (d.tipo==="PERCENTUAL"&&Number(d.valor)>100)||!money(d.minimo_compra)||
+        (d.desconto_maximo!=null&&(!money(d.desconto_maximo)||Number(d.desconto_maximo)<=0))||
+        !optionalLimit(d.limite_usos)||!optionalLimit(d.limite_por_cliente)||Number.isNaN(starts.getTime())||
+        (ends&&(Number.isNaN(ends.getTime())||ends<=starts))||typeof d.ativo!=="boolean"||typeof d.publico!=="boolean")
+        return res.status(400).json({success:false,message:"Confira código, valores, limites e datas do cupom."});
+    const saved=await db.transaction(async client=>{
+        const before=req.params.id?(await client.query("SELECT * FROM cupons WHERE id=$1 AND empresa_id=$2 FOR UPDATE",[req.params.id,req.user.empresaId])).rows[0]:null;
+        if(req.params.id&&!before)throw Object.assign(new Error("Cupom não encontrado."),{status:404});
+        const values=[code,d.descricao,d.tipo,d.valor,d.minimo_compra,d.desconto_maximo,starts,ends,d.limite_usos,d.limite_por_cliente,d.ativo,d.publico,req.user.empresaId];
+        const result=req.params.id?await client.query(`UPDATE cupons SET codigo=$1,descricao=$2,tipo=$3,valor=$4,minimo_compra=$5,desconto_maximo=$6,
+            inicia_em=$7,expira_em=$8,limite_usos=$9,limite_por_cliente=$10,ativo=$11,publico=$12,updated_at=NOW()
+            WHERE empresa_id=$13 AND id=$14 RETURNING *`,[...values,req.params.id]):
+            await client.query(`INSERT INTO cupons(codigo,descricao,tipo,valor,minimo_compra,desconto_maximo,inicia_em,expira_em,limite_usos,limite_por_cliente,ativo,publico,empresa_id)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,values);
+        const resultRow=result.rows[0];await audit.record(client,req,before?"ATUALIZAR":"CRIAR","cupons",resultRow.id,before,resultRow);return resultRow;
+    });
+    res.status(req.params.id?200:201).json({success:true,data:saved});
+}
+router.post("/cupons",role("ADMIN"),wrap(saveCoupon));
+router.put("/cupons/:id",role("ADMIN"),wrap(saveCoupon));
 router.get("/notificacoes",wrap(async(req,res)=>{
     const result=await db.query(`SELECT n.*,l.lida_em,COUNT(*) OVER() AS total FROM notificacoes_admin n
         LEFT JOIN notificacoes_admin_leituras l ON l.notificacao_id=n.id AND l.usuario_id=$2

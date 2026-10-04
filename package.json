@@ -11,6 +11,7 @@
     "db:seed-catalog": "node scripts/seed-catalog.js",
     "db:seed-demo-clients": "node scripts/seed-demo-clients.js",
     "test": "node --test tests/*.test.js",
+    "test:integration": "node --test tests/postgres.integration.js",
     "check:syntax": "node scripts/check-syntax.js",
     "check:links": "node scripts/check-links.js",
     "db:backup": "node scripts/backup.js backup",

@@ -20,9 +20,9 @@ function validProfile(data) {
     return !!data && text(data.nome, 3, 150) && validCpf(data.cpf) &&
         /^\d{10,11}$/.test(digits(data.telefone)) &&
         (!data.whatsapp || /^\d{10,11}$/.test(digits(data.whatsapp))) &&
-        /^\d{8}$/.test(digits(data.cep)) && text(data.endereco, 3, 160) &&
-        text(data.numero, 1, 20) && text(data.bairro, 2, 80) && text(data.cidade, 2, 80) &&
-        states.has(String(data.estado).toUpperCase()) && (!data.complemento || text(data.complemento, 1, 150));
+        /^\d{8}$/.test(digits(data.cep)) && text(data.endereco, 3, 150) &&
+        text(data.numero, 1, 10) && text(data.bairro, 2, 80) && text(data.cidade, 2, 80) &&
+        states.has(String(data.estado).toUpperCase()) && (!data.complemento || text(data.complemento, 1, 100));
 }
 function validRegistration(data) {
     return validProfile(data) && validPassword(data.senha) &&

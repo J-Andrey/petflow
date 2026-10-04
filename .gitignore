@@ -17,3 +17,5 @@ coverage/
 # Backups contêm dados pessoais
 .backups/
 *.dump
+
+.tmp/

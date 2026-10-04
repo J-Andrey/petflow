@@ -33,6 +33,16 @@ function createClient() {
         }
     });
 }
+async function consultarCobranca(id) {
+    try{return (await createClient().get("/charges/"+encodeURIComponent(id))).data;}
+    catch(error){throw buildPagSeguroError(error);}
+}
+async function reembolsar(id,cents,key) {
+    if(!Number.isSafeInteger(cents)||cents<=0)throw new Error("Valor de reembolso inválido.");
+    try{return (await createClient().post("/charges/"+encodeURIComponent(id)+"/cancel",{amount:{value:cents}},
+        {headers:{"x-idempotency-key":key}})).data;}
+    catch(error){throw buildPagSeguroError(error);}
+}
 
 async function criarCheckout(pedido) {
     const client = createClient();
@@ -97,6 +107,9 @@ function buildCheckoutPayload(pedido) {
             webhookUrl
         ],
         payment_methods: buildPaymentMethods(),
+        expiration_date: pedido.reserva_expira_em ? new Date(pedido.reserva_expira_em).toISOString() : undefined,
+        discount_amount: toCents(pedido.desconto),
+        additional_amount: toCents(pedido.acrescimo),
         items: items.map(item => ({
             reference_id: String(item.produto_id || item.id || pedido.id),
             name: String(item.produto || "Produto PetFlow").slice(0, 100),
@@ -107,8 +120,8 @@ function buildCheckoutPayload(pedido) {
         shipping: {
             type: "FIXED",
             service_type: "PAC",
-            amount: 0,
-            address: buildAddress(cliente),
+            amount: toCents(pedido.valor_frete),
+            address: buildAddress(pedido.endereco_entrega || cliente),
             address_modifiable: false
         }
     };
@@ -127,11 +140,9 @@ function buildPaymentMethods() {
         },
         {
             type: "CREDIT_CARD"
-        },
-        {
-            type: "DEBIT_CARD"
         }
     ];
+    if(process.env.PAGSEGURO_ENABLE_DEBIT==="true") methods.push({type:"DEBIT_CARD"});
 
     return methods;
 }
@@ -168,7 +179,7 @@ function normalizarCheckout(data) {
         checkoutId: data?.id || null,
         orderId: data?.order_id || data?.reference_id || null,
         chargeId: charge?.id || null,
-        status: data?.status || charge?.status || null,
+        status: charge?.status || data?.status || null,
         paymentMethod: mapPaymentMethod(
             charge?.payment_method?.type ||
             data?.payment_method?.type
@@ -191,8 +202,8 @@ function extrairEventoWebhook(body) {
         body?.charges?.[0]?.id;
 
     const pagseguroStatus =
-        body?.status ||
         body?.charges?.[0]?.status ||
+        body?.status ||
         body?.payment_status ||
         body?.paymentStatus ||
         null;
@@ -224,6 +235,7 @@ function validarAssinaturaWebhook(payloadOriginal, assinaturaRecebida) {
     }
 
     const assinatura = String(assinaturaRecebida).trim();
+    if(!/^[a-f0-9]{64}$/i.test(assinatura)) return false;
     const hash = crypto
         .createHash("sha256")
         .update(`${PAGSEGURO_TOKEN}-${payloadOriginal}`, "utf8")
@@ -244,11 +256,7 @@ function mapStatusToVenda(status) {
 
     if (
         [
-            "PAID",
-            "AVAILABLE",
-            "AUTHORIZED",
-            "APPROVED",
-            "PAGAMENTO_APROVADO"
+            "PAID"
         ].includes(normalized)
     ) {
         return "PAGAMENTO_APROVADO";
@@ -262,6 +270,7 @@ function mapStatusToVenda(status) {
             "REFUNDED",
             "CHARGEBACK",
             "CANCELADA"
+            ,"EXPIRED"
         ].includes(normalized)
     ) {
         return "CANCELADA";
@@ -358,6 +367,8 @@ function friendlyPagSeguroMessage(message) {
 }
 
 module.exports = {
+    consultarCobranca,
+    reembolsar,
     criarCheckout,
     consultarCheckout,
     extrairEventoWebhook,

@@ -7,6 +7,8 @@
 const db = require("../database/connection");
 const rules = require("./orderRules");
 const reservations = require("./reservationService");
+const coupons = require("./couponService");
+const delivery = require("./deliveryService").createDeliveryService({secret:require("../config/env").JWT_SECRET});
 
 const VendaModel = require("../models/vendaModel");
 const ItemVendaModel = require("../models/itemVendaModel");
@@ -94,6 +96,11 @@ const VendaService = {
         try {
 
             await client.query("BEGIN");
+            const customerResult=await client.query("SELECT * FROM clientes WHERE id=$1 AND empresa_id=$2 AND ativo=TRUE FOR UPDATE",[venda.cliente_id,empresaId]);
+            const customer=customerResult.rows[0];
+            if(!customer) throw Object.assign(new Error("Cliente indisponível."),{status:400});
+            const address=venda.endereco_entrega || customer;
+            const quote=delivery.verify(venda.cotacao_frete,empresaId,address);
 
             const novaVenda = await VendaModel.criar(
                 {
@@ -133,6 +140,8 @@ const VendaService = {
             const expiresAt = new Date(Date.now() + rules.reservationMinutes() * 60000);
             await client.query("UPDATE vendas SET reserva_expira_em=$1 WHERE id=$2 AND empresa_id=$3",
                 [expiresAt,novaVenda.id,empresaId]);
+            await client.query("UPDATE vendas SET endereco_entrega=$1,valor_frete=$2,distancia_entrega_m=$3 WHERE id=$4 AND empresa_id=$5",
+                [quote.address,quote.cents/100,quote.distance,novaVenda.id,empresaId]);
             let valorTotalBruto = 0;
 
             const itensCriados = [];
@@ -242,6 +251,9 @@ const VendaService = {
 
             }
 
+            const coupon=await coupons.validate(client,{empresaId,clienteId:customer.id,code:venda.cupom_codigo,subtotal:Math.round(valorTotalBruto*100),lock:true});
+            await client.query("UPDATE vendas SET desconto=$1,cupom_codigo=$2 WHERE id=$3 AND empresa_id=$4",
+                [coupon.cents/100,coupon.code,novaVenda.id,empresaId]);
             const valorFinal =
                 valorTotalBruto -
                 desconto +
@@ -379,6 +391,7 @@ const VendaService = {
                 vendaAtualizada || venda,
                 client
             );
+            await client.query("UPDATE financeiro SET status='PAGO',valor_pago=valor,data_pagamento=CURRENT_DATE WHERE empresa_id=$1 AND origem='VENDA' AND referencia_id=$2",[venda.empresa_id,venda.id]);
 
             await client.query("COMMIT");
 
@@ -412,6 +425,7 @@ const VendaService = {
         const changed=await db.transaction(async client=>{
             const current=await buscarVendaPagamento(vendaId,empresaId,client);
             if(!current) return null;
+            if(current.reembolso_status&&current.reembolso_status!=="CONCLUIDO")throw Object.assign(new Error("Pedido com reembolso em processamento."),{status:409});
             rules.assertTransition(current.status,status);
             if(current.status===status) return current;
             if(status==="CANCELADA") await reservations.release(client,current);

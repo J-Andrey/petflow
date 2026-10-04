@@ -5,6 +5,8 @@
 ================================================== */
 
 const agendamentoModel = require("../models/agendamentoModel");
+const schedule = require("../services/scheduleService");
+const db = require("../database/connection");
 
 /* ==================================================
    LISTAR
@@ -90,13 +92,7 @@ async function store(request, response, next) {
 
     try {
 
-        const agendamento = await agendamentoModel.create({
-
-            ...request.body,
-
-            empresaId: request.user.empresaId
-
-        });
+        const agendamento = await schedule.save(db,request,request.body);
 
         return response.status(201).json({
 
@@ -126,15 +122,7 @@ async function update(request, response, next) {
 
         const { id } = request.params;
 
-        const agendamento = await agendamentoModel.update(
-
-            id,
-
-            request.body,
-
-            request.user.empresaId
-
-        );
+        const agendamento = await schedule.save(db,request,request.body,id);
 
         return response.status(200).json({
 
@@ -164,19 +152,19 @@ async function destroy(request, response, next) {
 
         const { id } = request.params;
 
-        await agendamentoModel.remove(
-
-            id,
-
-            request.user.empresaId
-
-        );
-
+        const current=await agendamentoModel.findById(id,request.user.empresaId);
+        if(!current)return response.status(404).json({success:false,message:"Agendamento não encontrado."});
+        await schedule.save(db,request,{
+            clienteId:current.cliente_id,petId:current.pet_id,funcionarioId:current.funcionario_id,
+            servicoId:current.servico_id,servico:current.servico,
+            data:new Date(current.data_agendamento).toISOString().slice(0,10),hora:String(current.horario).slice(0,5),
+            status:"CANCELADO",motivo:request.body?.motivo||"Cancelado pelo painel administrativo."
+        },id);
         return response.status(200).json({
 
             success: true,
 
-            message: "Agendamento removido com sucesso."
+            message: "Agendamento cancelado. Histórico preservado."
 
         });
 

@@ -168,6 +168,9 @@ async function criarPedido(request, response, next) {
                 status: "AGUARDANDO_PAGAMENTO",
 
                 desconto: 0,
+                cupom_codigo: body.cupom_codigo,
+                cotacao_frete: body.cotacao_frete,
+                endereco_entrega: body.endereco_entrega,
 
                 acrescimo: 0,
 

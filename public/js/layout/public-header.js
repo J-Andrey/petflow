@@ -12,6 +12,9 @@
     };
 
     function initPublicHeader() {
+        if(!document.querySelector("script[data-cart-sidebar]")){
+            const script=document.createElement("script");script.src="/js/layout/cart-sidebar.js";script.dataset.cartSidebar="true";document.body.append(script);
+        }
         ensureHeader();
         setupHeaderSearch();
         setupMenuToggle();

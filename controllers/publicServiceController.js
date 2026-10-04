@@ -16,11 +16,11 @@ async function pets(request, response, next) {
                     peso,
                     observacoes
                 FROM pets
-                WHERE cliente_id = $1
+                WHERE cliente_id = $1 AND empresa_id=$2
                 AND ativo = TRUE
                 ORDER BY nome ASC
             `,
-            [request.customer.id]
+            [request.customer.id,request.customer.empresaId]
         );
 
         return response.status(200).json({
@@ -47,6 +47,7 @@ async function criarPet(request, response, next) {
             `
                 INSERT INTO pets (
                     cliente_id,
+                    empresa_id,
                     nome,
                     especie,
                     raca,
@@ -56,7 +57,7 @@ async function criarPet(request, response, next) {
                     observacoes,
                     ativo
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE)
+                VALUES ($1,$9,$2,$3,$4,$5,$6,$7,$8,TRUE)
                 RETURNING
                     id,
                     nome,
@@ -67,7 +68,7 @@ async function criarPet(request, response, next) {
                     peso,
                     observacoes
             `,
-            petParams(data, request.customer.id)
+            [...petParams(data, request.customer.id),request.customer.empresaId]
         );
 
         return response.status(201).json({
@@ -104,7 +105,7 @@ async function atualizarPet(request, response, next) {
                     observacoes = $7,
                     updated_at = NOW()
                 WHERE id = $8
-                AND cliente_id = $9
+                AND cliente_id = $9 AND empresa_id=$10
                 AND ativo = TRUE
                 RETURNING
                     id,
@@ -125,7 +126,7 @@ async function atualizarPet(request, response, next) {
                 normalizeDecimal(data.peso),
                 clean(data.observacoes),
                 request.params.id,
-                request.customer.id
+                request.customer.id,request.customer.empresaId
             ]
         );
 
@@ -155,9 +156,9 @@ async function removerPet(request, response, next) {
                     ativo = FALSE,
                     updated_at = NOW()
                 WHERE id = $1
-                AND cliente_id = $2
+                AND cliente_id = $2 AND empresa_id=$3
             `,
-            [request.params.id, request.customer.id]
+            [request.params.id, request.customer.id,request.customer.empresaId]
         );
 
         if (!rowCount) {
@@ -176,93 +177,14 @@ async function removerPet(request, response, next) {
     }
 }
 
-async function solicitarAgendamento(request, response, next) {
+async function solicitarAgendamento(request,response,next){
     try {
-        const data = request.body;
-
-        if (!data?.servicoId || !data?.petId || !data?.data || !data?.hora) {
-            return response.status(400).json({
-                success: false,
-                message: "Informe serviço, pet, data e horário."
-            });
-        }
-
-        if (!isFutureDate(data.data)) {
-            return response.status(400).json({
-                success: false,
-                message: "Escolha uma data válida para o agendamento."
-            });
-        }
-
-        if (!isValidServiceTime(data.hora)) {
-            return response.status(400).json({
-                success: false,
-                message: "Escolha um horário entre 08:00 e 18:00."
-            });
-        }
-
-        const pet = await findCustomerPet(
-            data.petId,
-            request.customer.id
-        );
-
-        if (!pet) {
-            return response.status(404).json({
-                success: false,
-                message: "Pet não encontrado na sua conta."
-            });
-        }
-
-        const servico = await findService(data.servicoId);
-
-        if (!servico) {
-            return response.status(404).json({
-                success: false,
-                message: "Serviço não encontrado."
-            });
-        }
-
-        const { rows } = await db.query(
-            `
-                INSERT INTO agendamentos (
-                    cliente_id,
-                    pet_id,
-                    servico_id,
-                    servico,
-                    data_agendamento,
-                    horario,
-                    valor,
-                    observacoes,
-                    status
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'AGENDADO')
-                RETURNING
-                    id,
-                    status,
-                    data_agendamento,
-                    horario
-            `,
-            [
-                request.customer.id,
-                pet.id,
-                servico.id,
-                servico.nome,
-                data.data,
-                data.hora,
-                servico.preco || 0,
-                clean(data.observacoes)
-            ]
-        );
-
-        return response.status(201).json({
-            success: true,
-            message:
-                "Solicitação enviada com sucesso. A equipe PetFlow confirmará o horário.",
-            data: rows[0]
+        const data=await require("../services/scheduleService").save(db,request,{
+            clienteId:request.customer.id,petId:request.body.petId,servicoId:request.body.servicoId,
+            data:request.body.data,hora:request.body.hora,status:"AGENDADO",observacoes:request.body.observacoes
         });
-    } catch (error) {
-        next(error);
-    }
+        return response.status(201).json({success:true,message:"Agendamento solicitado.",data});
+    }catch(error){next(error);}
 }
 
 async function findCustomerPet(id, customerId) {
