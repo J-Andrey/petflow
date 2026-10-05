@@ -8,6 +8,7 @@ const itemCompraController = require("../controllers/itemCompraController");
 
 const authMiddleware = require("../middlewares/authMiddleware");
 const roleMiddleware = require("../middlewares/roleMiddleware");
+const immutableItems = require("../middlewares/immutableItemsMiddleware");
 
 // Listar itens de uma compra
 router.get(
@@ -30,7 +31,7 @@ router.post(
     "/",
     authMiddleware,
     roleMiddleware("ADMIN"),
-    itemCompraController.criar
+    immutableItems
 );
 
 // Atualizar item da compra
@@ -38,7 +39,7 @@ router.put(
     "/:id",
     authMiddleware,
     roleMiddleware("ADMIN"),
-    itemCompraController.atualizar
+    immutableItems
 );
 
 // Excluir item da compra
@@ -46,7 +47,7 @@ router.delete(
     "/:id",
     authMiddleware,
     roleMiddleware("ADMIN"),
-    itemCompraController.excluir
+    immutableItems
 );
 
 module.exports = router;

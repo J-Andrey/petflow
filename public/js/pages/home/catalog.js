@@ -12,9 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupNewsletterForm();
 });
 
-const PUBLIC_API = window.location.hostname === "localhost"
-    ?"http://localhost:4500/api/public"
-    : "/api/public";
+const PUBLIC_API = "/api/public";
 
 let publicProducts = [];
 let publicCart = normalizeCartStorage();
@@ -46,19 +44,9 @@ async function loadPublicCatalog() {
             return;
         }
 
-        publicProducts = collectStaticProducts();
-        prepareStaticProductCards();
-        bindProductActions();
-        syncProductButtons();
-        applyPublicSearch(getSearchValue(), false);
-        updateHeaderCounters();
+        publicProducts=[];grid.textContent="Nenhum produto disponível no momento.";updateHeaderCounters();
     } catch {
-        publicProducts = collectStaticProducts();
-        prepareStaticProductCards();
-        bindProductActions();
-        syncProductButtons();
-        applyPublicSearch(getSearchValue(), false);
-        updateHeaderCounters();
+        publicProducts=[];grid.textContent="Não foi possível carregar os produtos. Tente novamente mais tarde.";updateHeaderCounters();
     }
 }
 
@@ -81,9 +69,9 @@ async function loadPublicServices() {
 
         if (services.length) {
             renderServices(services.slice(0, 6));
-        }
+        } else {grid.textContent="Nenhum serviço disponível no momento.";}
     } catch {
-        // Mantem os cards estaticos como fallback.
+        grid.textContent="Não foi possível carregar os serviços. Tente novamente mais tarde.";
     }
 }
 
@@ -654,294 +642,10 @@ function getFavoriteProducts() {
 }
 
 function setupCartCheckout() {
-    injectCheckoutModal();
-
-    document.querySelectorAll("[aria-label='Sacola'], .menu-action-link[aria-label='Abrir sacola']").forEach(link => {
-        link.addEventListener("click", event => {
-            event.preventDefault();
-            openCheckoutModal();
-        });
+    document.querySelectorAll("[aria-label='Sacola'], .menu-action-link[aria-label='Abrir sacola']").forEach(link => {link.href="/sacola";});
+    window.addEventListener("petflow:cart-updated",()=>{
+        publicCart=normalizeCartStorage();updateHeaderCounters();syncProductButtons();
     });
-
-    document.addEventListener("click", event => {
-        if (event.target.closest("[data-cart-close]")) {
-            closeCheckoutModal();
-        }
-
-        if (event.target.classList.contains("checkout-overlay")) {
-            closeCheckoutModal();
-        }
-
-        const remove = event.target.closest("[data-cart-remove]");
-        if (remove) {
-            delete publicCart[remove.dataset.cartRemove];
-            persistPublicState();
-            renderCheckoutItems();
-            renderProducts(currentVisibleProducts());
-        }
-    });
-
-    document.addEventListener("input", event => {
-        const quantity = event.target.closest("[data-cart-quantity]");
-
-        if (!quantity) {
-            return;
-        }
-
-        publicCart[quantity.dataset.cartQuantity] = Math.max(1, Number(quantity.value || 1));
-        persistPublicState();
-        renderCheckoutItems();
-    });
-
-    document.addEventListener("submit", event => {
-        if (event.target?.id === "checkoutForm") {
-            submitPublicOrder(event);
-        }
-    });
-}
-
-function injectCheckoutModal() {
-    if (document.querySelector(".checkout-overlay")) {
-        return;
-    }
-
-    document.body.insertAdjacentHTML("beforeend", `
-        <div class="checkout-overlay" hidden>
-            <aside class="checkout-panel" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
-                <header class="checkout-header">
-                    <div>
-                        <span>Sacola PetFlow</span>
-                        <h2 id="checkoutTitle">Finalizar pedido</h2>
-                    </div>
-                    <button class="icon-badge" type="button" data-cart-close aria-label="Fechar sacola">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </header>
-                <div class="checkout-items" id="checkoutItems"></div>
-                <form class="checkout-form" id="checkoutForm">
-                    <div class="checkout-alert" id="checkoutCustomer"></div>
-                    <label>Observações<textarea class="form-control" name="observacoes" placeholder="Ex: entregar à tarde"></textarea></label>
-                    <div class="checkout-total">
-                        <span>Total</span>
-                        <strong id="checkoutTotal">R$ 0,00</strong>
-                    </div>
-                    <button class="btn btn-primary" type="submit">Finalizar pedido</button>
-                    <p class="checkout-status" id="checkoutStatus" role="status"></p>
-                </form>
-            </aside>
-        </div>
-    `);
-}
-function openCheckoutModal() {
-    const overlay = document.querySelector(".checkout-overlay");
-
-    if (!overlay) {
-        return;
-    }
-
-    renderCheckoutItems();
-    renderCheckoutCustomer();
-    overlay.hidden = false;
-    document.body.classList.add("checkout-open");
-}
-
-function closeCheckoutModal() {
-    const overlay = document.querySelector(".checkout-overlay");
-
-    if (overlay) {
-        overlay.hidden = true;
-    }
-
-    document.body.classList.remove("checkout-open");
-}
-
-function renderCheckoutItems() {
-    const list = document.getElementById("checkoutItems");
-    const total = document.getElementById("checkoutTotal");
-
-    if (!list || !total) {
-        return;
-    }
-
-    const items = getCartProducts();
-
-    if (!items.length) {
-        list.innerHTML = `<div class="public-empty">Sua sacola está vazia.</div>`;
-        total.textContent = currency(0);
-        return;
-    }
-
-    list.innerHTML = items.map(({ product, quantity }) => `
-        <article class="checkout-item">
-            <img src="${escapeHtml(product.foto || "/images/products/petflow-prime-racao.jpg")}" alt="${escapeHtml(product.nome)}">
-            <div>
-                <strong>${escapeHtml(product.nome)}</strong>
-                <span>${currency(product.preco)}</span>
-            </div>
-            <input class="form-control" type="number" min="1" step="1" value="${quantity}" data-cart-quantity="${escapeHtml(product.id)}" aria-label="Quantidade">
-            <button class="icon-badge" type="button" data-cart-remove="${escapeHtml(product.id)}" aria-label="Remover item">
-                <i class="fa-solid fa-trash"></i>
-            </button>
-        </article>
-    `).join("");
-
-    total.textContent = currency(items.reduce((sum, item) => sum + Number(item.product.preco || 0) * item.quantity, 0));
-}
-
-function getCartProducts() {
-    return Object.entries(publicCart)
-        .map(([id, quantity]) => {
-            const product = publicProducts.find(item => String(item.id || item.sku || item.nome) === String(id));
-
-            return product
-                ?{ product, quantity: Math.max(1, Number(quantity || 1)) }
-                : null;
-        })
-        .filter(Boolean);
-}
-
-async function submitPublicOrder(event) {
-    event.preventDefault();
-
-    const status = document.getElementById("checkoutStatus");
-    const form = event.target;
-    const items = getCartProducts();
-    const token = getCustomerToken();
-
-    if (!items.length) {
-        if (status) status.textContent = "Adicione produtos antes de finalizar.";
-        return;
-    }
-
-    if (!token) {
-        if (status) status.textContent = "Entre na sua conta para finalizar o pedido.";
-        renderCheckoutCustomer();
-        return;
-    }
-
-    if (!publicCustomer || !hasDeliveryAddress(publicCustomer)) {
-        if (status) status.textContent = "Atualize seu endereço antes de finalizar.";
-        renderCheckoutCustomer();
-        return;
-    }
-
-    const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
-
-    if (status) status.textContent = "Enviando pedido...";
-
-    try {
-        const response = await fetch(`${PUBLIC_API}/pedidos`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                formaPagamento: "PAGBANK",
-                observacoes: data.observacoes,
-                itens: items.map(({ product, quantity }) => ({
-                    produto_id: product.id,
-                    quantidade: quantity,
-                    valor_unitario: Number(product.preco || 0)
-                }))
-            })
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                clearCustomerSession();
-                setupCustomerHeader();
-            }
-
-            throw new Error(payload.message || "Não foi possível enviar o pedido.");
-        }
-
-        if (status) {
-            status.textContent = "Pedido recebido. Abrindo pagamento seguro...";
-        }
-
-        const paymentStarted = await startPublicPayment(
-            payload.payment?.vendaId ||
-            payload.data?.id,
-            token,
-            status
-        );
-
-        if (paymentStarted) {
-            publicCart = {};
-            persistPublicState();
-            renderProducts(currentVisibleProducts());
-            renderCheckoutItems();
-            form.reset();
-        }
-    } catch (error) {
-        if (status) {
-            status.textContent = error.message || "Não foi possível enviar o pedido.";
-        }
-    }
-}
-
-async function startPublicPayment(vendaId, token, status) {
-    if (!vendaId) {
-        if (status) {
-            status.textContent =
-                "Pedido criado, mas não foi possível iniciar o pagamento.";
-        }
-        return false;
-    }
-
-    try {
-        const response = await fetch(`${PUBLIC_API}/pagamentos`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                vendaId
-            })
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok) {
-            throw new Error(
-                payload.message ||
-                "Não foi possível iniciar o pagamento."
-            );
-        }
-
-        if (payload.payment?.checkoutUrl) {
-            window.location.href = payload.payment.checkoutUrl;
-            return true;
-        }
-
-        if (status) {
-            status.textContent =
-                "Pedido criado. Acesse seus pedidos para acompanhar o pagamento.";
-        }
-        return false;
-    } catch (error) {
-        if (status) {
-            status.textContent =
-                friendlyPaymentError(error.message) ||
-                "Pedido criado, mas o pagamento não foi iniciado.";
-        }
-        return false;
-    }
-}
-
-function friendlyPaymentError(message) {
-    const text = String(message || "");
-
-    if (text.toLowerCase().includes("allowlist")) {
-        return "O PagBank bloqueou este checkout porque a conta ainda precisa de liberação para usar a API em produção. O pedido foi criado, mas o pagamento não foi aberto.";
-    }
-
-    return text;
 }
 
 function setupCustomerHeader() {
@@ -1148,15 +852,14 @@ function insertLogoutLink(accountLink) {
     accountLink.insertAdjacentElement("afterend", logout);
 }
 
-function handleCustomerLogout(event) {
+async function handleCustomerLogout(event) {
     event.preventDefault();
+    try { const response=await fetch(`${PUBLIC_API}/clientes/logout`,{method:"POST",headers:{Authorization:"Bearer "+getCustomerToken()}});if(!response.ok&&response.status!==401)throw new Error("Logout indisponível"); } catch { alert("Não foi possível encerrar a sessão. Tente novamente.");return; }
     clearCustomerSession();
     closeCustomerNotifications();
     setupCustomerHeader();
     syncProductButtons();
     renderFavoritesItems();
-    renderCheckoutItems();
-    renderCheckoutCustomer();
 }
 
 function clearCustomerSession() {
@@ -1178,66 +881,6 @@ function clearCustomerSession() {
 function getFirstName(name) {
     const firstName = String(name || "Cliente").trim().split(/\s+/)[0] || "Cliente";
     return firstName.length > 12 ? `${firstName.slice(0, 11)}...` : firstName;
-}
-
-async function renderCheckoutCustomer() {
-    const container = document.getElementById("checkoutCustomer");
-    const submit = document.querySelector("#checkoutForm button[type='submit']");
-
-    if (!container || !submit) {
-        return;
-    }
-
-    const token = getCustomerToken();
-
-    if (!token) {
-        submit.disabled = true;
-        container.innerHTML = `
-            <div class="checkout-account-card is-warning">
-                <strong>Entre para finalizar</strong>
-                <p>É necessário entrar na sua conta antes de finalizar o pedido.</p>
-                <div class="checkout-account-actions">
-                    <a class="btn btn-primary" href="/login">Entrar ou cadastrar</a>
-                </div>
-            </div>
-        `;
-        return;
-    }
-
-    try {
-        publicCustomer = await fetchCustomerProfile();
-        const addressComplete = hasDeliveryAddress(publicCustomer);
-
-        submit.disabled = !addressComplete;
-
-        if (addressComplete) {
-            container.innerHTML = "";
-            return;
-        }
-
-        container.innerHTML = `
-            <div class="checkout-account-card is-warning">
-                <strong>Endereço incompleto</strong>
-                <p>Atualize seu endereço na área do cliente antes de finalizar.</p>
-                <div class="checkout-account-actions">
-                    <a class="btn btn-secondary" href="/conta">Editar meus dados</a>
-                </div>
-            </div>
-        `;
-    } catch {
-        clearCustomerSession();
-        submit.disabled = true;
-        container.innerHTML = `
-            <div class="checkout-account-card is-warning">
-                <strong>Sessão expirada</strong>
-                <p>Entre novamente para finalizar seu pedido.</p>
-                <div class="checkout-account-actions">
-                    <a class="btn btn-primary" href="/login">Entrar novamente</a>
-                </div>
-            </div>
-        `;
-        setupCustomerHeader();
-    }
 }
 
 async function fetchCustomerProfile() {

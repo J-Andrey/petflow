@@ -44,14 +44,15 @@ async function reembolsar(id,cents,key) {
     catch(error){throw buildPagSeguroError(error);}
 }
 
-async function criarCheckout(pedido) {
+async function criarCheckout(pedido, idempotencyKey) {
     const client = createClient();
     const payload = buildCheckoutPayload(pedido);
 
     try {
         const { data } = await client.post(
             "/checkouts",
-            payload
+            payload,
+            idempotencyKey ? {headers:{"x-idempotency-key":idempotencyKey}} : undefined
         );
 
         return normalizarCheckout(data);

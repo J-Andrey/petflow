@@ -2,7 +2,7 @@
 const fs=require("node:fs"),path=require("node:path"),{spawnSync}=require("node:child_process");
 function walk(dir) {
     return fs.readdirSync(dir,{withFileTypes:true}).flatMap(entry=>{
-        if(["node_modules",".git",".backups"].includes(entry.name))return [];
+        if(["node_modules",".git",".backups",".tmp"].includes(entry.name))return [];
         const name=path.join(dir,entry.name);
         return entry.isDirectory()?walk(name):name.endsWith(".js")?[name]:[];
     });

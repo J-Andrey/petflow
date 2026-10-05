@@ -445,6 +445,14 @@ const VendaService = {
         return db.transaction(async client=>{
             const current=await buscarVendaPagamento(referencia,empresaId,client);
             if(!current) return null;
+            // Estorno externo/disputa exige conciliação; não devolve mercadoria já entregue.
+            if(current.estoque_baixado_em && ["CANCELED","CANCELLED","REFUNDED","CHARGEBACK"].includes(dadosPagamento.pagseguroStatus)) {
+                const title="Pagamento exige conciliação";
+                const message="Pedido "+current.id+": PagBank informou "+dadosPagamento.pagseguroStatus+". Confira a cobrança, os valores e a entrega antes de ajustar financeiro ou estoque.";
+                await client.query(`INSERT INTO notificacoes_admin(empresa_id,cliente_id,titulo,mensagem)
+                    SELECT $1::uuid,$2::uuid,$3::text,$4::text WHERE NOT EXISTS(SELECT 1 FROM notificacoes_admin WHERE empresa_id=$1 AND titulo=$3 AND mensagem=$4)`,
+                    [current.empresa_id,current.cliente_id,title,message]);
+            }
             // Eventos antigos não desfazem pagamento, entrega ou cancelamento.
             if(current.estoque_baixado_em || current.status==="CANCELADA") return current;
             if(status==="CANCELADA") await reservations.release(client,current);

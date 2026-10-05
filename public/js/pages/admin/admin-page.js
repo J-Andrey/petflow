@@ -717,6 +717,14 @@
 
         editingId = id;
         fillForm(record);
+        if (config.key === "financeiro" && record.origem === "COMPRA") {
+            for (const name of ["origem", "tipo", "valor"]) {
+                const input = document.querySelector(`[name="${name}"]`);
+                if (!input) continue;
+                if (name === "origem" && !Array.from(input.options).some(option=>option.value==="COMPRA")) input.add(new Option("Compra", "COMPRA"));
+                input.value = record[name];input.disabled = true;
+            }
+        }
         setText("formTitle", "Editar registro");
     }
 
@@ -736,7 +744,8 @@
                 return;
             }
 
-            const value = getRecordValue(record, field.name, "");
+            const rawValue = getRecordValue(record, field.name, "");
+            const value = field.type === "date" ? formatDateKey(rawValue) : rawValue;
             input.value =
                 field.type === "json" && typeof value !== "string"
                     ? JSON.stringify(value || {}, null, 2)
@@ -945,6 +954,15 @@
     }
 
     function buildRowActions(record) {
+        if (config.key === "compras") {
+            return '<span class="muted">Compra registrada</span>';
+        }
+        if (config.key === "financeiro" && ["VENDA", "PEDIDO"].includes(record.origem)) {
+            return '<span class="muted">Controlado pelo pedido</span>';
+        }
+        if (config.key === "financeiro" && (record.referencia_id || Number(record.valor_pago) > 0 || record.status === "CANCELADO" || record.origem === "COMPRA")) {
+            return `<button class="icon-btn" type="button" data-action="edit" data-id="${escapeHtml(record.id)}" title="Editar lançamento"><i class="fa-solid fa-pen"></i></button>`;
+        }
         if (isSalesPage) {
             return `
                 <button
@@ -974,7 +992,7 @@
                 type="button"
                 data-action="delete"
                 data-id="${escapeHtml(record.id)}"
-                title="Excluir">
+                title="${config.key === 'financeiro' ? 'Cancelar lançamento' : 'Excluir'}">
                 <i class="fa-solid fa-trash"></i>
             </button>
         `;

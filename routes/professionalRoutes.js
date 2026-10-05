@@ -10,6 +10,18 @@ const {sendOptionalEmail}=require("../services/emailService");
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
 const page=req=>Math.max(1,Math.min(10000,Number.parseInt(req.query.page,10)||1));
 router.use(auth);
+router.get("/checkouts",role("ADMIN","GERENTE"),wrap(async(req,res)=>{
+    const result=await db.query(`SELECT t.venda_id AS id,t.status,t.criada_em,c.nome AS cliente,COUNT(*) OVER() AS total
+        FROM checkout_tentativas t JOIN vendas v ON v.id=t.venda_id AND v.empresa_id=t.empresa_id
+        JOIN clientes c ON c.id=v.cliente_id AND c.empresa_id=v.empresa_id
+        WHERE t.empresa_id=$1 AND t.status<>'CONCLUIDA' AND (c.nome ILIKE $2 OR t.venda_id::text ILIKE $2)
+        ORDER BY t.criada_em DESC LIMIT 25 OFFSET $3`,[req.user.empresaId,"%"+String(req.query.q||"").slice(0,100)+"%",(page(req)-1)*25]);
+    res.json({success:true,data:result.rows,page:page(req)});
+}));
+router.post("/checkouts/:id/conciliar",role("ADMIN"),wrap(async(req,res)=>{
+    const result=await require("../services/checkoutService").reconcile(db,req,req.params.id,req.body.checkout_id,require("../services/pagseguroService"));
+    res.json({success:true,data:result});
+}));
 router.post("/lgpd/:id/processar",role("ADMIN"),wrap(async(req,res)=>{
     if(!UUID.test(req.params.id))return res.status(400).json({success:false,message:"Identificador inválido."});
     const result=await require("../services/privacyService").processRequest(db,req,req.params.id);

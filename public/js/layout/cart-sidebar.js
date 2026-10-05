@@ -14,6 +14,9 @@
     window.addEventListener("message",event=>{
         if(event.origin!==location.origin||event.source!==frame.contentWindow)return;
         if(event.data?.type==="petflow:cart-close")dialog.close();
-        if(event.data?.type==="petflow:cart-update")window.PetFlowPublicHeader?.update();
+        if(event.data?.type==="petflow:cart-update"){
+            window.PetFlowPublicHeader?.update();
+            window.dispatchEvent(new Event("petflow:cart-updated"));
+        }
     });
 })();

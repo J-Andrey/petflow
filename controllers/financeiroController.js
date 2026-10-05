@@ -1,6 +1,8 @@
 "use strict";
 
 const FinanceiroModel = require("../models/financeiroModel");
+const operations = require("../services/financialAdminService");
+const db = require("../database/connection");
 
 async function listar(req, res, next) {
     try {
@@ -40,10 +42,7 @@ async function buscarPorId(req, res, next) {
 
 async function criar(req, res, next) {
     try {
-        const lancamento = await FinanceiroModel.criar({
-            ...req.body,
-            empresa_id: req.user.empresaId
-        });
+        const lancamento = await operations.save(db, req);
 
         return res.status(201).json({
             success: true,
@@ -57,11 +56,7 @@ async function criar(req, res, next) {
 
 async function atualizar(req, res, next) {
     try {
-        const lancamento = await FinanceiroModel.atualizar(
-            req.params.id,
-            req.user.empresaId,
-            req.body
-        );
+        const lancamento = await operations.save(db, req, req.params.id);
 
         if (!lancamento) {
             return res.status(404).json({
@@ -82,10 +77,7 @@ async function atualizar(req, res, next) {
 
 async function excluir(req, res, next) {
     try {
-        const lancamento = await FinanceiroModel.excluir(
-            req.params.id,
-            req.user.empresaId
-        );
+        const lancamento = await operations.remove(db, req, req.params.id);
 
         if (!lancamento) {
             return res.status(404).json({
@@ -96,7 +88,7 @@ async function excluir(req, res, next) {
 
         return res.status(200).json({
             success: true,
-            message: "Lançamento financeiro removido com sucesso."
+            message: "Lançamento financeiro cancelado; histórico preservado."
         });
     } catch (error) {
         next(error);

@@ -9,6 +9,7 @@ const ItemVendaController = require("../controllers/itemVendaController");
 const authMiddleware = require("../middlewares/authMiddleware");
 
 const roleMiddleware = require("../middlewares/roleMiddleware");
+const immutableItems = require("../middlewares/immutableItemsMiddleware");
 
 /* ===========================================
    TODAS AS ROTAS EXIGEM LOGIN
@@ -50,7 +51,7 @@ router.post(
 
     roleMiddleware("ADMIN", "GERENTE"),
 
-    ItemVendaController.criar
+    immutableItems
 
 );
 
@@ -60,7 +61,7 @@ router.put(
 
     roleMiddleware("ADMIN"),
 
-    ItemVendaController.atualizar
+    immutableItems
 
 );
 
@@ -70,7 +71,7 @@ router.delete(
 
     roleMiddleware("ADMIN"),
 
-    ItemVendaController.excluir
+    immutableItems
 
 );
 

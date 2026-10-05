@@ -9,6 +9,7 @@ function run() {
     const url=options.connectionString?new URL(options.connectionString):null;
     const database=url?decodeURIComponent(url.pathname.slice(1)):options.database;
     if(!database)throw new Error("Banco não informado.");
+    if(process.env.DB_EXPECTED_NAME && database!==process.env.DB_EXPECTED_NAME)throw new Error("O banco configurado diverge de DB_EXPECTED_NAME.");
     const env={...process.env,PGDATABASE:database,PGHOST:url?url.hostname:options.host,
         PGPORT:url?(url.port||"5432"):String(options.port||5432),
         PGUSER:url?decodeURIComponent(url.username):options.user,PGPASSWORD:url?decodeURIComponent(url.password):options.password};
