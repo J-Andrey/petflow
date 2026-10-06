@@ -259,6 +259,7 @@ app.use("/api/financeiro", financeiroRoutes);
 
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/clinica", require("./routes/clinicalRoutes"));
+app.use("/api/admin", require("./routes/reconciliationRoutes"));
 app.use("/api", require("./routes/professionalRoutes"));
 
 /* ==================================================

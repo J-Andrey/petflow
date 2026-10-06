@@ -770,13 +770,17 @@ async function markCustomerNotificationsRead() {
     }
 
     try {
-        await fetch(`${PUBLIC_API}/clientes/notificacoes/lidas`, {
+        const response = await fetch(`${PUBLIC_API}/clientes/notificacoes/lidas`, {
             method: "PATCH",
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${getCustomerToken()}`
             }
         });
+
+        if (!response.ok) {
+            return;
+        }
 
         publicNotifications = publicNotifications.map(item => ({
             ...item,

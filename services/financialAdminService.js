@@ -67,7 +67,7 @@ function validate(data) {
 }
 function prepare(body, before) {
   const data = { ...before, ...body };
-  if (before?.origem === "VENDA" || before?.origem === "PEDIDO")
+  if (["VENDA", "PEDIDO", "ESTORNO", "CHARGEBACK", "REVERSAO_CHARGEBACK"].includes(before?.origem))
     fail("Este lançamento é controlado pelo pagamento do pedido.", 409);
   if (before?.referencia_id || before?.origem === "COMPRA") {
     for (const key of ["origem", "referencia_id", "tipo", "valor"]) {
@@ -142,7 +142,7 @@ async function remove(db, req, id) {
     if (!before) fail("Lançamento não encontrado.", 404);
     if (
       before.referencia_id ||
-      ["VENDA", "PEDIDO", "COMPRA"].includes(before.origem) ||
+      ["VENDA", "PEDIDO", "COMPRA", "ESTORNO", "CHARGEBACK", "REVERSAO_CHARGEBACK"].includes(before.origem) ||
       cents(before.valor_pago) > 0
     )
       fail("Lançamento vinculado ou pago deve ser preservado.", 409);

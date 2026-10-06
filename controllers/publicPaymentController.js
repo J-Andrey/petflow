@@ -4,6 +4,7 @@ const VendaModel = require("../models/vendaModel");
 const VendaService = require("../services/vendaService");
 const pagseguroService = require("../services/pagseguroService");
 const db = require("../database/connection");
+const reconciliation = require("../services/paymentReconciliationService");
 
 async function criarPagamento(request, response, next) {
   try {
@@ -101,6 +102,11 @@ async function consultarPagamento(request, response, next) {
             dadosPagamento,
           );
 
+    await reconciliation.receivePaymentEvent(db, {
+      referenceId: pedido.id,
+      chargeId: checkout.chargeId,
+    }, pagseguroService);
+
     return response.status(200).json({
       success: true,
       message: "Pagamento consultado com sucesso.",
@@ -123,6 +129,11 @@ async function receberWebhook(request, response, next) {
         success: false,
         message: "Assinatura do webhook inválida.",
       });
+    }
+
+    if (/^CBKS_/.test(request.body?.id || "")) {
+      await reconciliation.receiveChargebackEvent(db, request.body.id, pagseguroService);
+      return response.status(200).json({ success: true, message: "Chargeback consultado e conciliado." });
     }
 
     const event = pagseguroService.extrairEventoWebhook(request.body || {});
@@ -156,6 +167,10 @@ async function receberWebhook(request, response, next) {
         dadosPagamento,
       );
     }
+
+    // Um estorno parcial permanece PAID no PagBank. Consultar o resumo em
+    // qualquer notificação captura esse caso e evita confiar em payload antigo.
+    await reconciliation.receivePaymentEvent(db, event, pagseguroService);
 
     return response.status(200).json({
       success: true,

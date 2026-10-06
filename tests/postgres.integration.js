@@ -151,7 +151,8 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     JWT_EXPIRES_IN: "1h",
     APP_URL: "https://example.test",
   });
-  inject("../services/emailService", { sendOptionalEmail: async () => null });
+  // Templates e outbox reais; o worker usa sender falso no helper da fila.
+  // Nenhuma chamada Resend é feita neste teste.
   const saleService = require("../services/vendaService");
   const jwt = require("jsonwebtoken");
   const address = require("../services/deliveryService").normalizeAddress(
@@ -216,6 +217,7 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     1,
   );
   await saleService.atualizarStatusPedido(company, order.id, "EM_SEPARACAO");
+  assert.equal(Number((await db.query("SELECT valor_pago FROM financeiro WHERE origem='VENDA' AND referencia_id=$1",[order.id])).rows[0].valor_pago),25);
   await saleService.atualizarStatusPedido(
     company,
     order.id,
@@ -279,13 +281,15 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     refunded = 0;
   const gateway = {
     async consultarCobranca() {
-      return { id: "CHAR_TEST", amount: { summary: { refunded } } };
+      return { id: "CHAR_TEST",reference_id:refundOrder.id,status:refunded===1500?"CANCELED":"PAID",
+        amount:{currency:"BRL",value:1500,summary:{total:1500,paid:1500,refunded}} };
     },
     async reembolsar(id, cents, key) {
       gatewayCalls++;
       assert.equal(key, "petflow-refund-" + refundOrder.id);
       refunded = cents;
-      return { id, amount: { summary: { refunded } } };
+      return { id,reference_id:refundOrder.id,status:"CANCELED",
+        amount:{currency:"BRL",value:1500,summary:{total:1500,paid:1500,refunded}} };
     },
   };
   const refundResults = await Promise.all([
@@ -293,7 +297,9 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     cancellations.requestCancellation(db, actor, refundOrder.id, gateway),
   ]);
   assert.equal(gatewayCalls, 1);
-  assert.ok(refundResults.every((r) => r.status === "CANCELADA"));
+  assert.ok(refundResults.some((r) => r.status === "CANCELADA"));
+  assert.ok(refundResults.every((r) => ["CANCELADA","PROCESSANDO"].includes(r.status)));
+  assert.equal((await model.buscarPorId(refundOrder.id,company)).status,"CANCELADA");
   assert.equal(
     (
       await pool.query("SELECT quantidade FROM estoque WHERE produto_id=$1", [
@@ -591,6 +597,102 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     1,
   );
 
+  // Exportação exerce o SQL real com outros titulares, outra empresa e vínculos
+  // inconsistentes que poderiam existir no histórico anterior ao isolamento.
+  const foreignCustomer = (await pool.query(
+    "INSERT INTO clientes(empresa_id,nome,email,telefone) VALUES($1,'Titular externo','externo@example.test','11955555555') RETURNING id",
+    [other],
+  )).rows[0].id;
+  const siblingPet = (await pool.query(
+    "INSERT INTO pets(empresa_id,cliente_id,nome,especie) VALUES($1,$2,'SIGILOSO-MESMO-TENANT','CACHORRO') RETURNING id",
+    [company, secondCustomer],
+  )).rows[0].id;
+  const foreignPet = (await pool.query(
+    "INSERT INTO pets(empresa_id,cliente_id,nome,especie) VALUES($1,$2,'SIGILOSO-OUTRO-TENANT','CACHORRO') RETURNING id",
+    [other, foreignCustomer],
+  )).rows[0].id;
+  const foreignCategory = (await pool.query(
+    "INSERT INTO categorias(empresa_id,nome) VALUES($1,'Categoria externa') RETURNING id", [other],
+  )).rows[0].id;
+  const foreignProduct = (await pool.query(
+    "INSERT INTO produtos(empresa_id,categoria_id,nome,preco) VALUES($1,$2,'SIGILOSO-PRODUTO',10) RETURNING id",
+    [other, foreignCategory],
+  )).rows[0].id;
+  const foreignVaccine = (await pool.query(
+    "INSERT INTO vacinas(empresa_id,nome) VALUES($1,'SIGILOSO-VACINA') RETURNING id", [other],
+  )).rows[0].id;
+  for (const [tenant, owner, animal] of [
+    [company, secondCustomer, siblingPet],
+    [other, foreignCustomer, foreignPet],
+    [company, customer.id, siblingPet],
+  ]) {
+    const privateConsult = (await pool.query(
+      "INSERT INTO consultas(empresa_id,cliente_id,pet_id,data_consulta,horario,motivo_consulta) VALUES($1,$2,$3,$4,'15:00','SIGILOSO-CONSULTA') RETURNING id",
+      [tenant, owner, animal, date],
+    )).rows[0].id;
+    await pool.query(
+      "INSERT INTO prontuarios(empresa_id,consulta_id,diagnostico) VALUES($1,$2,'SIGILOSO-PRONTUARIO')", [tenant, privateConsult],
+    );
+    await pool.query(
+      "INSERT INTO historico_vacinas(empresa_id,pet_id,vacina_id,data_aplicacao,observacoes) VALUES($1,$2,$3,$4,'SIGILOSO-APLICACAO')",
+      [tenant, animal, tenant === other ? foreignVaccine : vaccine.id, today],
+    );
+  }
+  const foreignOrder = (await pool.query(
+    "INSERT INTO vendas(empresa_id,cliente_id,observacoes) VALUES($1,$2,'SIGILOSO-PEDIDO') RETURNING id",
+    [other, foreignCustomer],
+  )).rows[0].id;
+  await pool.query(
+    "INSERT INTO itens_venda(empresa_id,venda_id,produto_id,quantidade,preco_unitario,subtotal) VALUES($1,$2,$3,1,10,10)",
+    [other, foreignOrder, foreignProduct],
+  );
+  await pool.query(
+    "INSERT INTO lgpd_consentimentos(empresa_id,cliente_id,finalidade,versao,concedido,origem,ip_hash) VALUES($1,$2,'NEWSLETTER','teste',TRUE,'SITE','NUNCA-EXPORTAR-HASH')",
+    [company, customer.id],
+  );
+  await pool.query(
+    "INSERT INTO newsletter_inscritos(empresa_id,nome,email) VALUES($1,'Cliente Teste',$2)", [company, customer.email],
+  );
+  await pool.query(
+    "UPDATE vendas SET pagseguro_response=$1::jsonb,endereco_entrega=endereco_entrega || $1::jsonb WHERE id=$2",
+    [JSON.stringify({ token: "NUNCA-EXPORTAR-TOKEN", telefone_entregador: "NUNCA-EXPORTAR-TERCEIRO" }), order.id],
+  );
+  const inconsistentItem = (await pool.query(
+    "INSERT INTO itens_venda(empresa_id,venda_id,produto_id,quantidade,preco_unitario,subtotal) VALUES($1,$2,$3,1,10,10) RETURNING id",
+    [company, refundOrder.id, foreignProduct],
+  )).rows[0].id;
+  const inconsistentVaccination = (await pool.query(
+    "INSERT INTO historico_vacinas(empresa_id,pet_id,vacina_id,consulta_id,data_aplicacao) VALUES($1,$2,$3,NULL,$4) RETURNING id",
+    [company, pet, foreignVaccine, today],
+  )).rows[0].id;
+  const exported = await privacy.exportCustomerData(db, { id: customer.id, empresaId: company });
+  assert.equal(exported.perfil.id, customer.id);
+  assert.equal(exported.conta.email, customer.email);
+  assert.ok(exported.pets.some(record => record.id === pet));
+  assert.ok(exported.consultas.some(record => record.id === consult.id));
+  assert.ok(exported.prontuarios.some(record => record.id === chart.id));
+  assert.ok(exported.vacinas.some(record => record.id === vaccine.id));
+  assert.ok(exported.pedidos.some(record => record.id === refundOrder.id));
+  assert.ok(exported.historico_pedidos.some(record => record.venda_id === refundOrder.id));
+  assert.ok(exported.reembolsos.some(record => record.venda_id === refundOrder.id));
+  assert.ok(exported.pagamentos.some(record => record.referencia_id === refundOrder.id));
+  assert.ok(exported.consentimentos.some(record => record.finalidade === 'NEWSLETTER'));
+  assert.ok(exported.solicitacoes_atendimento.some(record => record.protocolo === denied.protocolo));
+  assert.equal(exported.newsletter[0].email, customer.email);
+  assert.equal(exported.itens_pedidos.find(record => record.id === inconsistentItem).produto_id, null);
+  assert.equal(exported.vacinacoes.find(record => record.id === inconsistentVaccination).vacina_id, null);
+  assert.doesNotMatch(JSON.stringify(exported), /SIGILOSO|NUNCA-EXPORTAR|senha_hash|token_recuperacao|chave_idempotencia|usuario_id|atendida_por|ip_hash/);
+  const siblingExport = await privacy.exportCustomerData(db, { id: secondCustomer, empresaId: company });
+  assert.equal(siblingExport.pets.length, 1);
+  assert.equal(siblingExport.pets[0].id, siblingPet);
+  assert.ok(siblingExport.consultas.every(record => record.pet_id === siblingPet));
+  assert.ok(siblingExport.prontuarios.every(record => record.diagnostico === 'SIGILOSO-PRONTUARIO'));
+  const foreignExport = await privacy.exportCustomerData(db, { id: foreignCustomer, empresaId: other });
+  assert.equal(foreignExport.pets[0].id, foreignPet);
+  assert.equal(foreignExport.pedidos[0].id, foreignOrder);
+  assert.equal(foreignExport.itens_pedidos[0].produto_id, foreignProduct);
+  await assert.rejects(privacy.exportCustomerData(db, { id: customer.id, empresaId: other }), { status: 404 });
+
   const checkoutService = require("../services/checkoutService");
   const checkoutOrder = (
     await saleService.finalizarVenda(company, sale, [
@@ -692,10 +794,13 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
   assert.equal(
     (
       await pool.query(
-        "SELECT COUNT(*)::integer AS n FROM notificacoes_admin WHERE empresa_id=$1 AND titulo='Pagamento exige conciliação'",
-        [company],
+        "SELECT COUNT(*)::integer AS n FROM notificacoes_admin WHERE empresa_id=$1 AND titulo='Pagamento exige conciliação' AND mensagem LIKE $2",
+        [company,"Pedido "+order.id+":%"],
       )
     ).rows[0].n,
     1,
   );
+  await require("./email-queue.integration")(pool);
+  await require("./reconciliation.integration")({db,company,actor,other});
+  await require("./legacy-models.integration")({db,company,other,actor});
 });

@@ -4,7 +4,7 @@ const db = require("../database/connection");
 const crypto = require("crypto");
 const { JWT_SECRET } = require("../config/env");
 const {
-    sendOptionalEmail,
+    enqueueEmail,
     newsletterConfirmationTemplate
 } = require("../services/emailService");
 
@@ -43,9 +43,11 @@ async function subscribe(request, response, next) {
         );
         const empresaId = empresaIdResult.rows[0]?.id;
 
-        const existing = await db.query(
+        const inscrito = await db.transaction(async client => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["newsletter-"+empresaId+"-"+email]);
+        const existing = await client.query(
             `
-                SELECT id
+                SELECT id,status
                 FROM newsletter_inscritos
                 WHERE empresa_id = $1
                   AND LOWER(email) = LOWER($2)
@@ -57,7 +59,7 @@ async function subscribe(request, response, next) {
         let inscrito;
 
         if (existing.rows[0]) {
-            const updated = await db.query(
+            const updated = await client.query(
                 `
                     UPDATE newsletter_inscritos
                     SET
@@ -75,7 +77,7 @@ async function subscribe(request, response, next) {
 
             inscrito = updated.rows[0];
         } else {
-            const created = await db.query(
+            const created = await client.query(
                 `
                     INSERT INTO newsletter_inscritos (
                         empresa_id,
@@ -99,11 +101,14 @@ async function subscribe(request, response, next) {
             token: buildUnsubscribeToken(inscrito.email)
         });
 
-        void sendOptionalEmail({
-            to: inscrito.email,
-            subject: template.subject,
-            html: template.html,
-            text: template.text
+        if(existing.rows[0]?.status !== "ATIVO") {
+            await enqueueEmail({
+                to: inscrito.email,
+                ...template,
+                idempotencyKey: "newsletter-confirmada-"+inscrito.id+"-"+crypto.randomUUID()
+            }, client);
+        }
+        return inscrito;
         });
 
         return response.status(200).json({

@@ -6,7 +6,7 @@ const role=require("../middlewares/roleMiddleware");
 const users=require("../services/adminUserService");
 const audit=require("../services/auditService");
 const {UUID}=require("../services/sessionService");
-const {sendOptionalEmail}=require("../services/emailService");
+const {enqueueEmail}=require("../services/emailQueueService");
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
 const page=req=>Math.max(1,Math.min(10000,Number.parseInt(req.query.page,10)||1));
 router.use(auth);
@@ -25,7 +25,6 @@ router.post("/checkouts/:id/conciliar",role("ADMIN"),wrap(async(req,res)=>{
 router.post("/lgpd/:id/processar",role("ADMIN"),wrap(async(req,res)=>{
     if(!UUID.test(req.params.id))return res.status(400).json({success:false,message:"Identificador inválido."});
     const result=await require("../services/privacyService").processRequest(db,req,req.params.id);
-    await sendOptionalEmail({to:result.email,subject:"PetFlow: protocolo "+result.protocolo,text:result.resposta,idempotencyKey:"lgpd-"+req.params.id});
     res.json({success:true,data:{protocolo:result.protocolo,resposta:result.resposta}});
 }));
 router.param("id",(req,res,next,id)=>UUID.test(id)?next():res.status(400).json({success:false,message:"Identificador inválido."}));
@@ -110,16 +109,21 @@ for(const [path,table,statuses] of [
             const found=await client.query(`SELECT * FROM ${table} WHERE id=$1 AND empresa_id=$2 FOR UPDATE`,[req.params.id,req.user.empresaId]);
             if(!found.rows[0]) throw Object.assign(new Error("Solicitação não encontrada."),{status:404});
             if(["ATENDIDA","NEGADA"].includes(found.rows[0].status)) throw Object.assign(new Error("Solicitação já encerrada."),{status:409});
-            const result=await client.query(`UPDATE ${table} SET status=$1,resposta=$2,atendida_por=$3,
-                atendida_em=CASE WHEN $1 IN ('ATENDIDA','NEGADA') THEN NOW() ELSE NULL END,updated_at=NOW()
+            if(path==="atendimento"&&["ATENDIDA","NEGADA"].includes(status)) {
+                const active=await client.query("SELECT id FROM devolucoes WHERE solicitacao_id=$1 AND empresa_id=$2 AND status<>'CONCLUIDA'",[req.params.id,req.user.empresaId]);
+                if(active.rows[0]) throw Object.assign(new Error("Devolução em andamento; confirme recebimento e reembolso antes de encerrar."),{status:409});
+            }
+            const result=await client.query(`UPDATE ${table} SET status=$1::text,resposta=$2,atendida_por=$3,
+                atendida_em=CASE WHEN $1::text IN ('ATENDIDA','NEGADA') THEN NOW() ELSE NULL END,updated_at=NOW()
                 WHERE id=$4 AND empresa_id=$5 RETURNING *`,[status,resposta.trim(),req.user.id,req.params.id,req.user.empresaId]);
             const item=result.rows[0];
             await audit.record(client,req,"RESPONDER",table,item.id,found.rows[0],item);
             if(item.cliente_id) await client.query("INSERT INTO notificacoes(cliente_id,titulo,mensagem,tipo) VALUES($1,$2,$3,'SISTEMA')",
                 [item.cliente_id,"Resposta ao protocolo "+item.protocolo,resposta.trim()]);
+            if(item.email_referencia) await enqueueEmail({to:item.email_referencia,subject:"PetFlow: protocolo "+item.protocolo,
+                text:resposta.trim(),idempotencyKey:path+"-resposta-"+item.id+"-"+status},client);
             return item;
         });
-        if(saved.email_referencia) await sendOptionalEmail({to:saved.email_referencia,subject:"PetFlow: protocolo "+saved.protocolo,text:resposta.trim()});
         res.json({success:true,data:saved});
     }));
 }

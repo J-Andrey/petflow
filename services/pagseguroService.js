@@ -37,6 +37,11 @@ async function consultarCobranca(id) {
     try{return (await createClient().get("/charges/"+encodeURIComponent(id))).data;}
     catch(error){throw buildPagSeguroError(error);}
 }
+async function consultarChargeback(id) {
+    if(!/^CBKS_[A-Za-z0-9-]{1,100}$/.test(id))throw Object.assign(new Error("Identificador de chargeback inválido."),{status:400});
+    try{return (await createClient().get("/chargebacks/"+encodeURIComponent(id))).data;}
+    catch(error){throw buildPagSeguroError(error);}
+}
 async function reembolsar(id,cents,key) {
     if(!Number.isSafeInteger(cents)||cents<=0)throw new Error("Valor de reembolso inválido.");
     try{return (await createClient().post("/charges/"+encodeURIComponent(id)+"/cancel",{amount:{value:cents}},
@@ -213,7 +218,7 @@ function extrairEventoWebhook(body) {
         referenceId,
         pagseguroStatus,
         orderId: body?.order_id || body?.id || null,
-        chargeId: body?.charges?.[0]?.id || body?.charge_id || null,
+        chargeId: body?.charges?.[0]?.id || body?.charge_id || (/^CHAR_/.test(body?.id || "") ? body.id : null),
         paymentMethod: mapPaymentMethod(
             body?.charges?.[0]?.payment_method?.type ||
             body?.payment_method?.type ||
@@ -368,6 +373,7 @@ function friendlyPagSeguroMessage(message) {
 }
 
 module.exports = {
+    consultarChargeback,
     consultarCobranca,
     reembolsar,
     criarCheckout,

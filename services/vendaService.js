@@ -20,7 +20,8 @@ const MovimentacaoEstoqueService = require(
 const FinanceiroService = require("./financeiroService");
 
 const {
-    sendOptionalEmail,
+    enqueueEmail,
+    orderReceivedTemplate,
     paymentApprovedTemplate,
     orderOutForDeliveryTemplate,
     orderDeliveredTemplate,
@@ -145,6 +146,7 @@ const VendaService = {
             let valorTotalBruto = 0;
 
             const itensCriados = [];
+            const itensEmail = [];
 
             for (const item of itens) {
 
@@ -246,6 +248,7 @@ const VendaService = {
                     );
 
                 itensCriados.push(novoItem);
+                itensEmail.push({ nome: produto.nome, quantidade, valor_unitario: precoUnitario });
 
                 valorTotalBruto = Math.round((valorTotalBruto + subtotal) * 100) / 100;
 
@@ -283,6 +286,13 @@ const VendaService = {
                     client
                 );
 
+            if (customer.email) {
+                const template = orderReceivedTemplate({
+                    name: customer.nome, orderId: novaVenda.id,
+                    total: vendaAtualizada.valor_final ?? vendaAtualizada.valor_total, items: itensEmail
+                });
+                await enqueueEmail({ to: customer.email, ...template, idempotencyKey: "pedido-recebido-" + novaVenda.id }, client);
+            }
             await client.query("COMMIT");
 
             return {
@@ -393,14 +403,14 @@ const VendaService = {
             );
             await client.query("UPDATE financeiro SET status='PAGO',valor_pago=valor,data_pagamento=CURRENT_DATE WHERE empresa_id=$1 AND origem='VENDA' AND referencia_id=$2",[venda.empresa_id,venda.id]);
 
-            await client.query("COMMIT");
-
             if (shouldNotifyPayment) {
                 await enviarEmailStatusPedido(
                     vendaAtualizada || venda,
-                    "PAGAMENTO_APROVADO"
-                ).catch(()=>console.warn("[email] confirmação de pagamento não enviada"));
+                    "PAGAMENTO_APROVADO",
+                    client
+                );
             }
+            await client.query("COMMIT");
 
             return vendaAtualizada || venda;
 
@@ -431,9 +441,9 @@ const VendaService = {
             if(status==="CANCELADA") await reservations.release(client,current);
             const updated=await VendaModel.atualizarStatus(vendaId,empresaId,status,client);
             if(actor) await require("./auditService").record(client,actor,"STATUS","vendas",vendaId,current,updated);
+            if(updated) await enviarEmailStatusPedido(updated,status,client);
             return updated;
         });
-        if(changed) await enviarEmailStatusPedido(changed,status).catch(()=>console.warn("[email] atualização de pedido não enviada"));
         return changed;
     },
 
@@ -540,7 +550,7 @@ async function gerarFinanceiroSeNaoExistir(empresaId, venda, client) {
         empresaId,
         {
             id: venda.id,
-            valor_total: venda.valor_final,
+            valor_final: venda.valor_final,
             data_venda: venda.data_venda,
             observacoes: venda.observacoes
         },
@@ -549,7 +559,7 @@ async function gerarFinanceiroSeNaoExistir(empresaId, venda, client) {
 
 }
 
-async function enviarEmailStatusPedido(venda, status) {
+async function enviarEmailStatusPedido(venda, status, client) {
 
     const templateFactory = {
         PAGAMENTO_APROVADO: paymentApprovedTemplate,
@@ -562,12 +572,11 @@ async function enviarEmailStatusPedido(venda, status) {
         return null;
     }
 
-    const pedido = await VendaModel.buscarPorId(
-        venda.id,
-        venda.empresa_id
+    const { rows } = await client.query(
+        "SELECT nome,email FROM clientes WHERE id=$1 AND empresa_id=$2",
+        [venda.cliente_id,venda.empresa_id]
     );
-
-    const cliente = pedido?.cliente;
+    const cliente = rows[0];
 
     if (!cliente?.email) {
         return null;
@@ -575,16 +584,17 @@ async function enviarEmailStatusPedido(venda, status) {
 
     const template = templateFactory({
         name: cliente.nome,
-        orderId: pedido.id,
-        total: pedido.valor_final ?? pedido.valor_total
+        orderId: venda.id,
+        total: venda.valor_final ?? venda.valor_total
     });
 
-    return sendOptionalEmail({
+    return enqueueEmail({
         to: cliente.email,
         subject: template.subject,
         html: template.html,
-        text: template.text
-    });
+        text: template.text,
+        idempotencyKey: "pedido-status-" + venda.id + "-" + status
+    }, client);
 
 }
 

@@ -46,7 +46,8 @@ async function route(db,current,fetcher=fetch) {
     if(!process.env.GOOGLE_MAPS_API_KEY||!process.env.DELIVERY_ORIGIN_ADDRESS)fail("Mapa ainda não configurado.",503);
     const address=current.endereco_entrega;
     if(!address)fail("Pedido sem endereço de entrega congelado.",409);
-    const origin=current.latitude!=null&&current.longitude!=null&&current.atualizado_em&&Date.now()-new Date(current.atualizado_em).getTime()<120000?
+    const usesGps=current.latitude!=null&&current.longitude!=null&&current.atualizado_em&&current.observado_em&&Date.now()-new Date(current.atualizado_em).getTime()<120000;
+    const origin=usesGps?
         {location:{latLng:{latitude:current.latitude,longitude:current.longitude}}}:{address:process.env.DELIVERY_ORIGIN_ADDRESS};
     let response;
     try{response=await fetcher("https://routes.googleapis.com/directions/v2:computeRoutes",{
@@ -56,6 +57,8 @@ async function route(db,current,fetcher=fetch) {
     });}catch{fail("Rota temporariamente indisponível.",503);}
     if(!response.ok)fail("Rota temporariamente indisponível.",503);
     const result=(await response.json()).routes?.[0];if(!result?.polyline)fail("Rota não encontrada.",502);
+    // Vincula a distância ao instante da posição usada como origem, não ao endereço da loja.
+    result.origem_gps_observado_em=usesGps?new Date(current.observado_em).toISOString():null;
     await db.query("UPDATE entrega_rastreamento SET rota=$1,rota_solicitada_em=NOW() WHERE venda_id=$2 AND token_hash=$3",[result,current.venda_id,current.token_hash]);
     return result;
 }

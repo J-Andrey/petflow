@@ -136,7 +136,7 @@ async function update(request, response, next) {
 
                 ...request.body,
 
-                foto: request.file?.path || request.body.foto
+                foto: request.file?.path
 
             },
 

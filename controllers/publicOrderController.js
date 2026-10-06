@@ -7,11 +7,6 @@
 const db = require("../database/connection");
 const VendaService = require("../services/vendaService");
 
-const {
-    sendOptionalEmail,
-    orderReceivedTemplate
-} = require("../services/emailService");
-
 /* ==================================================
    CONFIGURAÇÕES
 ================================================== */
@@ -184,42 +179,7 @@ async function criarPedido(request, response, next) {
             itensNormalizados
         );
 
-        /* ==========================================
-           PREPARA ITENS DO E-MAIL
-
-           Os preços utilizados aqui são os preços
-           já registrados pelo backend.
-        ========================================== */
-
-        const itensDetalhados =
-            await getItensDetalhados(
-                pedido.itens,
-                empresaId
-            );
-
-        const emailTemplate = orderReceivedTemplate({
-            name: cliente.nome,
-
-            orderId: pedido.venda.id,
-
-            total:
-                pedido.venda.valor_final ??
-                pedido.venda.valor_total,
-
-            items: itensDetalhados
-        });
-
-        /*
-        O envio não bloqueia a criação do pedido
-        caso o serviço de e-mail não esteja configurado.
-        */
-
-        void sendOptionalEmail({
-            to: cliente.email,
-            subject: emailTemplate.subject,
-            html: emailTemplate.html,
-            text: emailTemplate.text
-        });
+        // A confirmação por e-mail foi persistida na mesma transação do pedido.
 
         return response.status(201).json({
             success: true,
@@ -375,82 +335,6 @@ function verificarEndereco(cliente) {
 
         })
         .map(({ nome }) => nome);
-
-}
-
-/* ==================================================
-   BUSCAR DETALHES DOS ITENS
-================================================== */
-
-async function getItensDetalhados(
-    itens,
-    empresaId
-) {
-
-    if (!Array.isArray(itens) || itens.length === 0) {
-        return [];
-    }
-
-    const ids = [
-        ...new Set(
-            itens
-                .map(item => item.produto_id)
-                .filter(Boolean)
-        )
-    ];
-
-    if (ids.length === 0) {
-        return [];
-    }
-
-    const { rows } = await db.query(
-        `
-            SELECT
-                id,
-                nome
-            FROM produtos
-            WHERE id = ANY($1::uuid[])
-              AND empresa_id = $2;
-        `,
-        [
-            ids,
-            empresaId
-        ]
-    );
-
-    const produtosPorId = new Map(
-        rows.map(produto => [
-            produto.id,
-            produto
-        ])
-    );
-
-    return itens.map(item => {
-
-        const produto =
-            produtosPorId.get(item.produto_id);
-
-        return {
-            nome: produto?.nome ?? "Produto",
-
-            quantidade: Number(
-                item.quantidade ?? 0
-            ),
-
-            valor_unitario: Number(
-                item.preco_unitario ?? 0
-            ),
-
-            preco_unitario: Number(
-                item.preco_unitario ?? 0
-            ),
-
-            subtotal: Number(
-                item.subtotal ?? 0
-            )
-        };
-
-    });
 
 }
 

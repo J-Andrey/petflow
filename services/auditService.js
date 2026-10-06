@@ -1,6 +1,6 @@
 "use strict";
 // Allowlist: nunca persistir objetos inteiros vindos de contas, provedores ou requests.
-const allowed = new Set(["id","nome","email","perfil","ativo","status","tipo","codigo","valor","descricao","resposta","protocolo","status_anterior","status_novo"]);
+const allowed = new Set(["id","nome","email","perfil","ativo","status","tipo","codigo","valor","descricao","resposta","protocolo","status_anterior","status_novo","preco","custo","categoria_id","fornecedor_id","sku","codigo_barras","marca","unidade_medida","estoque_minimo","quantidade"]);
 function safeData(data) {
     if (!data) return null;
     return Object.fromEntries(Object.entries(data).filter(([key]) => allowed.has(key))

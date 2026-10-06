@@ -98,7 +98,7 @@ async function store(request, response, next) {
 
             foto: request.file?.path || null
 
-        });
+        }, request);
 
         return response.status(201).json({
 
@@ -136,11 +136,13 @@ async function update(request, response, next) {
 
                 ...request.body,
 
-                foto: request.file?.path || request.body.foto
+                foto: request.file?.path
 
             },
 
-            request.user.empresaId
+            request.user.empresaId,
+
+            request
 
         );
 
@@ -176,7 +178,9 @@ async function destroy(request, response, next) {
 
             id,
 
-            request.user.empresaId
+            request.user.empresaId,
+
+            request
 
         );
 
@@ -184,7 +188,7 @@ async function destroy(request, response, next) {
 
             success: true,
 
-            message: "Produto removido com sucesso."
+            message: "Produto desativado com sucesso."
 
         });
 

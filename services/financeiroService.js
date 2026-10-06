@@ -38,7 +38,7 @@ class FinanceiroService {
 
             descricao: `Venda #${venda.id}`,
 
-            valor: venda.valor_total,
+            valor: venda.valor_final,
 
             valor_pago: 0,
 

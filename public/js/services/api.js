@@ -6,11 +6,7 @@
 
 const API = {
 
-    baseURL: window.location.hostname === "localhost"
-
-        ?"http://localhost:4500/api"
-
-        : "/api"
+    baseURL: "/api"
 
 };
 /* ==================================================
@@ -25,7 +21,7 @@ async function request(endpoint, options = {}) {
 
         headers: {
 
-            "Content-Type": "application/json",
+            ...(!(options.body instanceof FormData) && { "Content-Type": "application/json" }),
 
             ...(token && {
 
@@ -110,7 +106,7 @@ async function apiPost(endpoint, data) {
 
         method: "POST",
 
-        body: JSON.stringify(data)
+        body: data instanceof FormData ? data : JSON.stringify(data)
 
     });
 
@@ -126,7 +122,7 @@ async function apiPut(endpoint, data) {
 
         method: "PUT",
 
-        body: JSON.stringify(data)
+        body: data instanceof FormData ? data : JSON.stringify(data)
 
     });
 
@@ -142,7 +138,7 @@ async function apiPatch(endpoint, data) {
 
         method: "PATCH",
 
-        body: JSON.stringify(data)
+        body: data instanceof FormData ? data : JSON.stringify(data)
 
     });
 

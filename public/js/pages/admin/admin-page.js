@@ -428,6 +428,7 @@
                     type="${escapeHtml(field.type || "text")}"
                     class="form-control"
                     value="${escapeHtml(value)}"
+                    ${field.accept ? `accept="${escapeHtml(field.accept)}"` : ""}
                     ${buildFieldAttributes(field)}
                     ${required}>
             </div>
@@ -672,7 +673,14 @@
     async function saveRecord(event) {
         event.preventDefault();
 
-        const payload = readForm();
+        const data = readForm();
+        let payload = data;
+        if ((config.fields || []).some(field => field.type === "file")) {
+            payload = new FormData();
+            for (const [key,value] of Object.entries(data)) {
+                if (value !== undefined && value !== null) payload.append(key,value);
+            }
+        }
         setStatus("Salvando...");
 
         try {
@@ -744,6 +752,7 @@
                 return;
             }
 
+            if (field.type === "file") return;
             const rawValue = getRecordValue(record, field.name, "");
             const value = field.type === "date" ? formatDateKey(rawValue) : rawValue;
             input.value =
@@ -780,6 +789,10 @@
                 return;
             }
 
+            if (field.type === "file") {
+                if (input.files[0]) data[field.name] = input.files[0];
+                return;
+            }
             let value = input.value.trim();
 
             if (field.type === "number") {
@@ -957,7 +970,7 @@
         if (config.key === "compras") {
             return '<span class="muted">Compra registrada</span>';
         }
-        if (config.key === "financeiro" && ["VENDA", "PEDIDO"].includes(record.origem)) {
+        if (config.key === "financeiro" && ["VENDA", "PEDIDO", "ESTORNO", "CHARGEBACK", "REVERSAO_CHARGEBACK"].includes(record.origem)) {
             return '<span class="muted">Controlado pelo pedido</span>';
         }
         if (config.key === "financeiro" && (record.referencia_id || Number(record.valor_pago) > 0 || record.status === "CANCELADO" || record.origem === "COMPRA")) {

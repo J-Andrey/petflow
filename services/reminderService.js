@@ -2,7 +2,7 @@
 
 const db = require("../database/connection");
 const {
-    sendOptionalEmail,
+    enqueueEmail,
     appointmentReminderTemplate,
     birthdayGreetingTemplate
 } = require("./emailService");
@@ -66,32 +66,16 @@ async function createAppointmentReminders() {
         const mensagem = `${item.servico} do ${item.pet} está agendado para ${formatDate(item.data)} às ${formatTime(item.hora)}.`;
         const tipo = classifyAppointment(item.servico);
 
-        const created = await createNotificationOncePerDay({
+        await createNotificationOncePerDay({
             clienteId: item.cliente_id,
             titulo,
             mensagem,
             tipo,
-            chaveEvento: "agenda-"+item.id+"-"+formatDate(item.data)
-        });
-
-        if (!created || !item.email) {
-            continue;
-        }
-
-        const template = appointmentReminderTemplate({
-            name: item.cliente,
-            petName: item.pet,
-            serviceName: item.servico,
-            date: item.data,
-            time: item.hora
-        });
-
-        void sendOptionalEmail({
-            to: item.email,
-            subject: template.subject,
-            html: template.html,
-            text: template.text,
-            idempotencyKey: "lembrete-"+created.id
+            chaveEvento: "agenda-"+item.id+"-"+formatDate(item.data),
+            emailOptions: item.email ? { to: item.email, expiresAt: reminderExpiry(item.data), ...appointmentReminderTemplate({
+                name: item.cliente, petName: item.pet, serviceName: item.servico,
+                date: item.data, time: item.hora
+            }) } : null
         });
     }
 }
@@ -112,28 +96,13 @@ async function createBirthdayMessages() {
         const titulo = "Feliz aniversário!";
         const mensagem = `${firstName(cliente.nome)}, a PetFlow deseja um feliz aniversário.`;
 
-        const created = await createNotificationOncePerDay({
+        await createNotificationOncePerDay({
             clienteId: cliente.id,
             titulo,
             mensagem,
             tipo: "SISTEMA",
-            chaveEvento: "aniversario-"+cliente.id+"-"+new Date().getFullYear()
-        });
-
-        if (!created || !cliente.email) {
-            continue;
-        }
-
-        const template = birthdayGreetingTemplate({
-            name: cliente.nome
-        });
-
-        void sendOptionalEmail({
-            to: cliente.email,
-            subject: template.subject,
-            html: template.html,
-            text: template.text,
-            idempotencyKey: "lembrete-"+created.id
+            chaveEvento: "aniversario-"+cliente.id+"-"+new Date().getFullYear(),
+            emailOptions: cliente.email ? { to: cliente.email, expiresAt: new Date(Date.now()+DAY_MS), ...birthdayGreetingTemplate({name:cliente.nome}) } : null
         });
     }
 }
@@ -145,16 +114,20 @@ async function createVaccineReminders() {
         WHERE c.ativo=TRUE AND p.ativo=TRUE AND h.proxima_dose=CURRENT_DATE+INTERVAL '3 days'`);
     for(const item of rows){
         const message="A próxima dose de "+item.vacina+" de "+item.pet+" está prevista para "+formatDate(item.proxima_dose)+". Agende com a equipe.";
-        const created=await createNotificationOncePerDay({clienteId:item.cliente_id,titulo:"Lembrete de vacinação",mensagem:message,tipo:"VACINA",chaveEvento:"vacina-"+item.id+"-"+formatDate(item.proxima_dose)});
-        if(created&&item.email)await sendOptionalEmail({to:item.email,subject:"PetFlow: lembrete de vacinação",text:message,idempotencyKey:"lembrete-"+created.id});
+        await createNotificationOncePerDay({clienteId:item.cliente_id,titulo:"Lembrete de vacinação",mensagem:message,tipo:"VACINA",chaveEvento:"vacina-"+item.id+"-"+formatDate(item.proxima_dose),
+            emailOptions:item.email?{to:item.email,expiresAt:reminderExpiry(item.proxima_dose),subject:"PetFlow: lembrete de vacinação",text:message}:null});
     }
 }
 
-async function createNotificationOncePerDay({clienteId,titulo,mensagem,tipo,chaveEvento}) {
-    const {rows}=await db.query(
-        "INSERT INTO notificacoes(cliente_id,titulo,mensagem,tipo,chave_evento) VALUES($1,$2,$3,$4,$5) ON CONFLICT(cliente_id,chave_evento) WHERE chave_evento IS NOT NULL DO NOTHING RETURNING *",
-        [clienteId,titulo,mensagem,tipo,chaveEvento]);
-    return rows[0]||null;
+async function createNotificationOncePerDay({clienteId,titulo,mensagem,tipo,chaveEvento,emailOptions}) {
+    return db.transaction(async client => {
+        const {rows}=await client.query(
+            "INSERT INTO notificacoes(cliente_id,titulo,mensagem,tipo,chave_evento) VALUES($1,$2,$3,$4,$5) ON CONFLICT(cliente_id,chave_evento) WHERE chave_evento IS NOT NULL DO NOTHING RETURNING *",
+            [clienteId,titulo,mensagem,tipo,chaveEvento]);
+        const created=rows[0]||null;
+        if(created&&emailOptions) await enqueueEmail({...emailOptions,idempotencyKey:"lembrete-"+created.id},client);
+        return created;
+    });
 }
 
 function classifyAppointment(serviceName) {
@@ -173,6 +146,11 @@ function classifyAppointment(serviceName) {
     }
 
     return "AGENDAMENTO";
+}
+
+function reminderExpiry(value) {
+    const day = new Date(value);
+    return Number.isFinite(day.getTime()) ? new Date(day.getTime()+DAY_MS) : undefined;
 }
 
 function firstName(name) {

@@ -6,9 +6,9 @@ const {
     APP_URL
 } = require("../config/env");
 
-async function sendEmail({ to, subject, html, text, idempotencyKey }) {
+async function sendEmail({ to, subject, html, text, idempotencyKey, from = EMAIL_FROM }) {
     if (!RESEND_API_KEY) {
-        throw Object.assign(new Error("Serviço de e-mail indisponível. Tente novamente mais tarde."), { status: 503 });
+        throw emailError("Serviço de e-mail indisponível. Tente novamente mais tarde.", "EMAIL_CONFIG", true, false);
     }
 
     const response = await fetch("https://api.resend.com/emails", {
@@ -20,18 +20,28 @@ async function sendEmail({ to, subject, html, text, idempotencyKey }) {
         },
         signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
-            from: EMAIL_FROM,
+            from,
             to,
             subject,
             html,
             text
         })
-    }).catch(() => { throw Object.assign(new Error("Não foi possível contatar o serviço de e-mail."), { status: 503 }); });
+    }).catch(() => { throw emailError("Não foi possível contatar o serviço de e-mail.", "EMAIL_NETWORK", true, true); });
 
     const payload = await response.json().catch(() => null);
 
-    if (!response.ok || !payload?.id) {
-        throw Object.assign(new Error("Não foi possível enviar o e-mail. Tente novamente mais tarde."), { status: 503 });
+    if (!response.ok || typeof payload?.id !== "string" || !payload.id || payload.id.length > 100) {
+        const concurrent = response.status === 409 && (payload?.name === "concurrent_idempotent_requests" || !payload);
+        const retryable = response.ok || response.status === 408 || response.status === 429 || response.status >= 500 || concurrent;
+        const ambiguous = response.ok || response.status === 408 || response.status >= 500 || (response.status === 409 && !payload);
+        const error = emailError("Não foi possível enviar o e-mail. Tente novamente mais tarde.",
+            response.status === 429 ? "EMAIL_RATE_LIMIT" : retryable ? "EMAIL_PROVIDER" : "EMAIL_REJECTED", retryable, ambiguous);
+        const retryAfter = response.headers?.get?.("retry-after");
+        if (retryAfter) {
+            error.retryAfterSeconds = /^\d+$/.test(retryAfter)
+                ? Number(retryAfter) : Math.max(0, Math.ceil((Date.parse(retryAfter) - Date.now()) / 1000));
+        }
+        throw error;
     }
 
     return payload;
@@ -39,11 +49,19 @@ async function sendEmail({ to, subject, html, text, idempotencyKey }) {
 
 async function sendOptionalEmail(options) {
     try {
-        return await sendEmail(options);
+        return await enqueueEmail(options);
     } catch (error) {
-        console.warn("[email] envio opcional não concluído");
+        console.warn("[email] e-mail opcional não enfileirado");
         return null;
     }
+}
+
+function enqueueEmail(options, client) {
+    return require("./emailQueueService").enqueueEmail(options, client);
+}
+
+function emailError(message, emailCode, emailRetryable, emailAmbiguous) {
+    return Object.assign(new Error(message), { status: 503, emailCode, emailRetryable, emailAmbiguous });
 }
 
 function welcomeTemplate({ name }) {
@@ -290,6 +308,7 @@ function escapeHtml(value) {
 module.exports = {
     sendEmail,
     sendOptionalEmail,
+    enqueueEmail,
     welcomeTemplate,
     emailVerificationTemplate,
     passwordResetTemplate,
