@@ -23,7 +23,8 @@ function validateCharge(order, charge) {
     const refunded = cents(charge.amount?.summary?.refunded, "Total estornado");
     if (charge.amount?.currency !== "BRL" || cents(charge.amount?.value) !== total || total !== moneyToCents(order.valor_final) || paid > total || refunded > paid)
         fail("Resumo da cobrança divergente do pedido.", 502);
-    if (charge.reference_id && charge.reference_id !== order.id) fail("Referência da cobrança divergente.", 502);
+    // reference_id da cobrança pode diferir da referência do pedido no Checkout.
+    // O vínculo comprovado é o charge_id persistido na venda e seu total/moeda.
     return { charge_id: charge.id, status: String(charge.status || ""), total_centavos: total, pago_centavos: paid, estornado_centavos: refunded, moeda: "BRL" };
 }
 async function addEvent(client, order, type, providerId, value, evidence) {

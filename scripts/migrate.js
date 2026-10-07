@@ -6,7 +6,7 @@ const crypto = require("crypto");
 const { Pool } = require("pg");
 const { buildDbOptions } = require("../config/dbOptions");
 
-require("dotenv").config();
+require("dotenv").config({quiet:true,path:process.env.PETFLOW_ENV_FILE||".env"});
 
 const SQL_DIR = path.join(__dirname, "..", "database", "sql");
 

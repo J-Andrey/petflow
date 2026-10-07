@@ -44,7 +44,10 @@ async function create(db, customer, id, gateway) {
       fail("O pedido não possui uma reserva válida para pagamento.");
     if (order.pagseguro_checkout_url) return { order, reused: true };
     const attempt = await client.query(
-      "INSERT INTO checkout_tentativas(venda_id,empresa_id,chave_idempotencia) VALUES($1,$2,$3) ON CONFLICT(venda_id) DO NOTHING RETURNING *",
+      `INSERT INTO checkout_tentativas(venda_id,empresa_id,chave_idempotencia) VALUES($1,$2,$3)
+       ON CONFLICT(venda_id) DO UPDATE SET status='INICIADA',codigo_erro=NULL,atualizada_em=NOW()
+       WHERE checkout_tentativas.empresa_id=EXCLUDED.empresa_id AND checkout_tentativas.status='REJEITADA'
+       RETURNING *`,
       [id, customer.empresaId, "petflow-checkout-" + id],
     );
     if (!attempt.rowCount)
@@ -54,12 +57,16 @@ async function create(db, customer, id, gateway) {
     return { key: attempt.rows[0].chave_idempotencia };
   });
   if (prepared.reused) return prepared;
+  let submitted = false;
   try {
     const order = await model.buscarPorIdDoCliente(
       id,
       customer.id,
       customer.empresaId,
     );
+    if (!order) fail("Pedido não encontrado.", 404);
+    if (gateway.validateCheckout) gateway.validateCheckout(order);
+    submitted = true;
     const checkout = await gateway.criarCheckout(order, prepared.key);
     const data = paymentData(checkout);
     const saved = await db.transaction(async (client) => {
@@ -78,7 +85,7 @@ async function create(db, customer, id, gateway) {
         client,
       );
       await client.query(
-        "UPDATE checkout_tentativas SET status='CONCLUIDA',atualizada_em=NOW() WHERE venda_id=$1 AND empresa_id=$2",
+        "UPDATE checkout_tentativas SET status='CONCLUIDA',codigo_erro=NULL,atualizada_em=NOW() WHERE venda_id=$1 AND empresa_id=$2",
         [id, customer.empresaId],
       );
       return {
@@ -95,8 +102,8 @@ async function create(db, customer, id, gateway) {
     return saved;
   } catch (error) {
     await db.query(
-      "UPDATE checkout_tentativas SET status='INCERTA',atualizada_em=NOW() WHERE venda_id=$1 AND empresa_id=$2 AND status<>'CONCLUIDA'",
-      [id, customer.empresaId],
+      "UPDATE checkout_tentativas SET status=$3,codigo_erro=$4,atualizada_em=NOW() WHERE venda_id=$1 AND empresa_id=$2 AND status<>'CONCLUIDA'",
+      [id, customer.empresaId, !submitted || error.checkoutRejected === true ? "REJEITADA" : "INCERTA", /^[a-zA-Z0-9_]{1,80}$/.test(error.paymentErrorCode || "") ? error.paymentErrorCode : null],
     );
     throw error;
   }

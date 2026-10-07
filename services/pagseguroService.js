@@ -16,6 +16,9 @@ function assertConfigured() {
         );
 
         error.status = 503;
+        error.paymentError = true;
+        error.checkoutRejected = true;
+        error.paymentErrorCode = "payment_not_configured";
         throw error;
     }
 }
@@ -77,7 +80,8 @@ async function consultarCheckout(checkoutId) {
 
     try {
         const { data } = await client.get(
-            `/checkouts/${encodeURIComponent(checkoutId)}`
+            `/checkouts/${encodeURIComponent(checkoutId)}`,
+            { params: { limit: 100 } }
         );
 
         return normalizarCheckout(data);
@@ -92,13 +96,30 @@ function buildCheckoutPayload(pedido) {
         ? pedido.itens
         : [];
     const appUrl = getAppUrl();
+    let origin;
+    try { origin = new URL(appUrl); } catch { rejectBeforeCheckout("Configure o endereço da loja para iniciar o pagamento.", "invalid_app_url", 503); }
+    if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || origin.search || origin.hash)
+        rejectBeforeCheckout("Confira o endereço configurado da loja para iniciar o pagamento.", "invalid_app_url", 503);
     const webhookUrl = `${appUrl}/api/public/pagamentos/webhook`;
 
     if (!items.length) {
-        const error = new Error("O pedido não possui itens para pagamento.");
-        error.status = 400;
-        throw error;
+        rejectBeforeCheckout("O pedido não possui itens para pagamento.", "invalid_order_items");
     }
+
+    if (webhookUrl.length > 100 || `${appUrl}/meus-pedidos`.length > 255)
+        rejectBeforeCheckout("O endereço da loja excede o limite aceito pelo PagBank. Confira a configuração.", "invalid_app_url", 503);
+    const paymentItems = items.map(item => {
+        const quantity = Number(item.quantidade);
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999)
+            rejectBeforeCheckout("A quantidade de um produto excede o limite de pagamento. Procure o atendimento.", "invalid_quantity");
+        return { reference_id: String(item.produto_id || item.id || pedido.id), name: normalizeText(item.produto || item.produto_nome || "Produto PetFlow", 100), quantity, unit_amount: toCents(item.preco_unitario) };
+    });
+    const discount = toCents(pedido.desconto), extra = toCents(pedido.acrescimo), shipping = toCents(pedido.valor_frete);
+    const subtotal = paymentItems.reduce((total, item) => total + item.quantity * item.unit_amount, 0);
+    if (!Number.isSafeInteger(subtotal) || subtotal > 999999900 || discount > subtotal + extra || subtotal - discount + extra + shipping <= 0)
+        rejectBeforeCheckout("Confira os valores e descontos do pedido antes de pagar.", "invalid_order_total");
+    if (pedido.valor_final != null && subtotal - discount + extra + shipping !== toCents(pedido.valor_final))
+        rejectBeforeCheckout("O total do pedido diverge dos produtos e do frete. Procure o atendimento.", "invalid_order_total");
 
     return {
         reference_id: String(pedido.id),
@@ -114,19 +135,13 @@ function buildCheckoutPayload(pedido) {
         ],
         payment_methods: buildPaymentMethods(),
         expiration_date: pedido.reserva_expira_em ? new Date(pedido.reserva_expira_em).toISOString() : undefined,
-        discount_amount: toCents(pedido.desconto),
-        additional_amount: toCents(pedido.acrescimo),
-        items: items.map(item => ({
-            reference_id: String(item.produto_id || item.id || pedido.id),
-            name: String(item.produto || "Produto PetFlow").slice(0, 100),
-            quantity: Number(item.quantidade || 1),
-            unit_amount: toCents(item.preco_unitario)
-        })),
+        discount_amount: discount,
+        additional_amount: extra,
+        items: paymentItems,
         customer: buildCustomer(cliente),
         shipping: {
-            type: "FIXED",
-            service_type: "PAC",
-            amount: toCents(pedido.valor_frete),
+            type: shipping ? "FIXED" : "FREE",
+            amount: shipping,
             address: buildAddress(pedido.endereco_entrega || cliente),
             address_modifiable: false
         }
@@ -155,8 +170,9 @@ function buildPaymentMethods() {
 
 function buildCustomer(cliente) {
     const customer = {
-        name: normalizeText(cliente.nome || "Cliente PetFlow", 120),
-        email: normalizeText(cliente.email, 60) || undefined
+        name: normalizeText(cliente.nome, 120) || undefined,
+        email: normalizeText(cliente.email, 60) || undefined,
+        tax_id: onlyDigits(cliente.cpf || cliente.cnpj) || undefined
     };
 
     const phone = buildPhone(cliente);
@@ -173,9 +189,13 @@ function normalizarCheckout(data) {
         ? data.links.find(link => link.rel === "PAY")
         : null;
 
-    const charge = Array.isArray(data?.charges)
-        ? data.charges[0]
-        : null;
+    const candidates = [];
+    if (Array.isArray(data?.charges)) data.charges.forEach(charge => candidates.push({ charge, orderId: data.order_id || (/^ORDE_/.test(data.id || "") ? data.id : null) }));
+    for (const order of [...(Array.isArray(data?.orders) ? data.orders : []), ...(Array.isArray(data?.payments) ? data.payments : [])]) {
+        if (Array.isArray(order.charges)) order.charges.forEach(charge => candidates.push({ charge, orderId: order.id }));
+    }
+    candidates.sort((a, b) => (b.charge.status === "PAID") - (a.charge.status === "PAID") || (new Date(b.charge.created_at).getTime() || 0) - (new Date(a.charge.created_at).getTime() || 0));
+    const selected = candidates[0], charge = selected?.charge;
 
     const qrCode = Array.isArray(data?.qr_codes)
         ? data.qr_codes[0]
@@ -183,7 +203,7 @@ function normalizarCheckout(data) {
 
     return {
         checkoutId: data?.id || null,
-        orderId: data?.order_id || data?.reference_id || null,
+        orderId: selected?.orderId || data?.order_id || null,
         chargeId: charge?.id || null,
         status: charge?.status || data?.status || null,
         paymentMethod: mapPaymentMethod(
@@ -217,7 +237,7 @@ function extrairEventoWebhook(body) {
     return {
         referenceId,
         pagseguroStatus,
-        orderId: body?.order_id || body?.id || null,
+        orderId: body?.order_id || (/^ORDE_/.test(body?.id || "") ? body.id : null),
         chargeId: body?.charges?.[0]?.id || body?.charge_id || (/^CHAR_/.test(body?.id || "") ? body.id : null),
         paymentMethod: mapPaymentMethod(
             body?.charges?.[0]?.payment_method?.type ||
@@ -272,7 +292,6 @@ function mapStatusToVenda(status) {
         [
             "CANCELED",
             "CANCELLED",
-            "DECLINED",
             "REFUNDED",
             "CHARGEBACK",
             "CANCELADA"
@@ -326,14 +345,21 @@ function buildPhone(cliente) {
     return {
         country: "+55",
         area: phone.slice(0, 2),
-        number: phone.slice(2),
-        type: "MOBILE"
+        number: phone.slice(2)
     };
 }
 
 function toCents(value) {
-    return Math.max(0, Math.round(Number(value || 0) * 100));
+    const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? 0));
+    if (!match) rejectBeforeCheckout("O pedido contém um valor monetário inválido.", "invalid_amount");
+    const cents = Number(match[1]) * 100 + Number((match[2] || "").padEnd(2, "0"));
+    if (!Number.isSafeInteger(cents) || cents > 999999900) rejectBeforeCheckout("O valor do pedido excede o limite de pagamento.", "invalid_amount");
+    return cents;
 }
+function rejectBeforeCheckout(message, code, status = 400) {
+    throw Object.assign(new Error(message), { status, paymentError: true, checkoutRejected: true, paymentErrorCode: code });
+}
+function validateCheckout(order) { assertConfigured(); return buildCheckoutPayload(order); }
 
 function onlyDigits(value) {
     return String(value || "").replace(/\D/g, "");
@@ -346,33 +372,25 @@ function normalizeText(value, maxLength) {
 }
 
 function buildPagSeguroError(error) {
+    if (error.paymentError) return error;
     const payload = error.response?.data;
-    const rawMessage =
-        payload?.message ||
-        payload?.error_messages?.[0]?.description ||
-        payload?.errors?.[0]?.description ||
-        "Não foi possível iniciar o pagamento no PagBank.";
-
-    const customError = new Error(
-        friendlyPagSeguroMessage(rawMessage)
-    );
-    customError.status = error.response?.status || 502;
-    customError.details = payload;
-
-    return customError;
-}
-
-function friendlyPagSeguroMessage(message) {
-    const text = String(message || "");
-
-    if (text.toLowerCase().includes("allowlist")) {
-        return "O PagBank bloqueou o checkout porque essa conta ainda precisa de liberação para usar a API em produção. Entre em contato com o suporte do PagBank e solicite a liberação do Checkout/API.";
-    }
-
-    return text;
+    const problem = payload?.error_messages?.[0] || payload?.errors?.[0] || {};
+    const code = /^[a-zA-Z0-9_]{1,80}$/.test(problem.error || problem.code || "") ? problem.error || problem.code : "payment_provider_error";
+    const providerStatus = Number(error.response?.status || 0);
+    const rejected = [400,401,403,404,406,415,422].includes(providerStatus) && !/^CHEC_/.test(payload?.id || "");
+    const names = { "customer.name": "nome completo", "customer.email": "e-mail", "customer.tax_id": "CPF", "customer.phone": "celular", "shipping.address": "endereço de entrega", "shipping.address.postal_code": "CEP", "shipping.address.number": "número do endereço", "shipping.address.locality": "bairro", "shipping.address.city": "cidade", "shipping.address.region_code": "estado" };
+    let message;
+    if (code === "allowlist_access_required") message = "O PagBank recusou o checkout porque a conta da loja ainda precisa de liberação para usar a API em produção. Contate o PagBank para liberar Checkout/API.";
+    else if (providerStatus === 401 || code === "invalid_authorization_header") message = "O PagBank recusou a credencial de pagamento da loja. A administração precisa conferir o token de produção configurado.";
+    else if (providerStatus === 403 || code === "access_denied") message = "O PagBank não autorizou esta conta a iniciar o pagamento. A administração precisa conferir a liberação da API de Checkout em produção.";
+    else if (names[problem.parameter_name]) message = "O PagBank recusou o " + names[problem.parameter_name] + ". Confira os dados em Minha conta ou no endereço de entrega e tente pagar este mesmo pedido.";
+    else if (rejected) message = "O PagBank recusou os dados do pagamento. O pedido continua salvo; confira seus dados e tente novamente em Meus pedidos.";
+    else message = "Não foi possível confirmar a resposta do PagBank. O pedido está salvo; consulte Meus pedidos ou o atendimento antes de tentar outra compra.";
+    return Object.assign(new Error(message), { status: providerStatus === 401 || providerStatus === 403 ? 503 : rejected ? 400 : 502, paymentError: true, paymentErrorCode: code, checkoutRejected: rejected });
 }
 
 module.exports = {
+    validateCheckout,
     consultarChargeback,
     consultarCobranca,
     reembolsar,

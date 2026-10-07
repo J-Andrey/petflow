@@ -236,14 +236,35 @@ async function setupPublicOrders() {
 
     const status = document.getElementById("ordersStatus");
 
-    list.addEventListener("click", event => {
-        const button = event.target.closest("[data-continue-payment]");
+    list.addEventListener("click", async event => {
+        const button = event.target.closest("[data-pay-order], [data-check-payment]");
 
         if (!button) {
             return;
         }
 
-        window.location.href = button.dataset.continuePayment;
+        button.disabled = true;
+        const id = button.dataset.payOrder || button.dataset.checkPayment;
+        setStatus(status, button.dataset.payOrder ? "Preparando o pagamento do pedido #" + shortId(id) + "..." : "Consultando o pagamento no PagBank...");
+        try {
+            if (button.dataset.payOrder) {
+                const payload = await request("/pagamentos", "POST", { vendaId: id });
+                let target;
+                try { target = new URL(payload.payment?.checkoutUrl || ""); }
+                catch { throw new Error("O pagamento não retornou um endereço válido. Consulte o atendimento com a referência deste pedido."); }
+                if (target.protocol !== "https:") throw new Error("O pagamento não retornou um endereço válido. Consulte o atendimento com a referência deste pedido.");
+                window.location.href = target.href;
+            } else {
+                const payment = await request("/pagamentos/" + encodeURIComponent(id), "GET");
+                const payload = await request("/clientes/pedidos", "GET");
+                renderOrders(list, Array.isArray(payload.data) ? payload.data : []);
+                setStatus(status, payment.payment?.status === "PAGAMENTO_APROVADO" ? "Pagamento confirmado. A loja já recebeu seu pedido." : "Situação atual: " + formatStatus(payment.payment?.status) + ".");
+            }
+        } catch (error) {
+            setStatus(status, "Pedido #" + shortId(id) + ": " + (error.message || "Não foi possível consultar o pagamento.") + " Você pode acompanhar este pedido aqui.");
+        } finally {
+            button.disabled = false;
+        }
     });
 
     try {
@@ -334,23 +355,25 @@ function renderOrderNotes(order) {
 
 function renderContinuePayment(order) {
     if (
-        order.status !== "AGUARDANDO_PAGAMENTO" ||
-        !order.pagseguro_checkout_url
+        order.status !== "AGUARDANDO_PAGAMENTO"
     ) {
         return "";
     }
 
+    const expired = order.reserva_expira_em && new Date(order.reserva_expira_em) <= new Date();
     return `
         <div class="order-actions">
+            ${expired ? `<span>A reserva deste pedido terminou. Consulte o atendimento antes de pagar.</span>` : `
             <button
                 class="btn order-pay-button"
                 type="button"
-                data-continue-payment="${escapeHtml(order.pagseguro_checkout_url)}"
+                data-pay-order="${escapeHtml(order.id)}"
             >
                 <i class="fa-solid fa-lock"></i>
-                Continuar pagamento
+                ${order.pagseguro_checkout_url ? "Continuar pagamento" : "Pagar este pedido"}
             </button>
-            <span>Você será direcionado para o ambiente seguro do PagBank.</span>
+            <span>Você será direcionado para o ambiente seguro do PagBank.</span>`}
+            ${order.pagseguro_checkout_id ? `<button class="btn-secondary" type="button" data-check-payment="${escapeHtml(order.id)}">Consultar pagamento</button>` : ""}
         </div>
     `;
 }

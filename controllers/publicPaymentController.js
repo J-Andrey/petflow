@@ -37,6 +37,7 @@ async function criarPagamento(request, response, next) {
         payment: buildPaymentResponse(result.order),
       });
   } catch (error) {
+    if (error.paymentError) return response.status(error.status || 502).json({ success: false, message: error.message, codigo: error.paymentErrorCode, pagamento: error.checkoutRejected ? "REJEITADO" : "EM_CONFERENCIA" });
     next(error);
   }
 }
@@ -113,6 +114,7 @@ async function consultarPagamento(request, response, next) {
       payment: buildPaymentResponse(vendaAtualizada || pedido),
     });
   } catch (error) {
+    if (error.paymentError) return response.status(error.status || 502).json({ success: false, message: error.message, codigo: error.paymentErrorCode });
     return next(error);
   }
 }

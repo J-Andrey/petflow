@@ -24,7 +24,8 @@ test("centavos rejeitam coerções, casas extras e resumo inválido", () => {
     for (const input of [true, null, "1.001", "-1", "1e2", NaN]) assert.throws(() => service.moneyToCents(input));
     for (const input of ["100", true, null, 1.5, -1]) assert.throws(() => service.cents(input));
     const valid = charge(250);
-    for (const invalid of [{ ...valid, id: "CHAR_other" }, { ...valid, reference_id: "other" }, { ...valid, amount: { ...valid.amount, currency: "USD" } }, charge(1001)]) assert.throws(() => service.validateCharge(order(), invalid));
+    for (const invalid of [{ ...valid, id: "CHAR_other" }, { ...valid, amount: { ...valid.amount, currency: "USD" } }, charge(1001)]) assert.throws(() => service.validateCharge(order(), invalid));
+    assert.equal(service.validateCharge(order(), { ...valid, reference_id: "referencia-da-cobranca" }).charge_id, "CHAR_test");
 });
 test("estorno parcial repetido/fora de ordem contabiliza apenas deltas e conserva entrega/estoque", async () => {
     const f = fake(), sale = order();
