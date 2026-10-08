@@ -1,7 +1,12 @@
 "use strict";
 const jwt=require("jsonwebtoken");
 const {digits}=require("./customerValidation");
-const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
+const fail=(message,status=400,code)=>{throw Object.assign(new Error(message),{status,code});};
+const deliveryErrors=Object.freeze({
+    DELIVERY_NOT_CONFIGURED:"O frete está temporariamente indisponível. A loja precisa concluir a configuração de entrega.",
+    DELIVERY_PROVIDER_UNAVAILABLE:"Não foi possível consultar o frete agora. Tente novamente em instantes.",
+    DELIVERY_ROUTE_UNAVAILABLE:"Não encontramos uma rota para esse endereço. Confira rua, número, cidade e CEP."
+});
 function normalizeAddress(input={}) {
     const out={};
     for(const key of ["cep","endereco","numero","complemento","bairro","cidade","estado"]) {
@@ -14,10 +19,11 @@ function normalizeAddress(input={}) {
     return out;
 }
 function config(env=process.env) {
-    if(!env.DELIVERY_ORIGIN_ADDRESS||!env.GOOGLE_MAPS_API_KEY)fail("Entrega ainda não configurada pela loja.",503);
+    const required=["DELIVERY_ORIGIN_ADDRESS","GOOGLE_MAPS_API_KEY","DELIVERY_FREE_DISTANCE_KM","DELIVERY_PRICE_PER_KM","DELIVERY_MAX_DISTANCE_KM"];
+    if(required.some(key=>env[key]==null||!String(env[key]).trim()))fail(deliveryErrors.DELIVERY_NOT_CONFIGURED,503,"DELIVERY_NOT_CONFIGURED");
     const free=Number(env.DELIVERY_FREE_DISTANCE_KM),rate=Number(env.DELIVERY_PRICE_PER_KM),max=Number(env.DELIVERY_MAX_DISTANCE_KM);
     if(!Number.isFinite(free)||free<0||!Number.isFinite(rate)||rate<0||!Number.isFinite(max)||max<=0||free>max)
-        fail("A loja precisa configurar as regras de frete.",503);
+        fail(deliveryErrors.DELIVERY_NOT_CONFIGURED,503,"DELIVERY_NOT_CONFIGURED");
     return {free,rate,max,fraction:env.DELIVERY_CHARGE_FRACTION!=="false",origin:env.DELIVERY_ORIGIN_ADDRESS,key:env.GOOGLE_MAPS_API_KEY};
 }
 function calculateCents(distance,settings) {
@@ -38,9 +44,12 @@ function createDeliveryService({secret,env=process.env,fetcher=fetch}) {
                 method:"POST",signal:AbortSignal.timeout(10000),
                 headers:{"Content-Type":"application/json","X-Goog-Api-Key":settings.key,"X-Goog-FieldMask":"routes.distanceMeters,routes.duration"},
                 body:JSON.stringify({origin:{address:settings.origin},destination:{address:[address.endereco,address.numero,address.bairro,address.cidade,address.estado,address.cep,"Brasil"].join(", ")},travelMode:"DRIVE",languageCode:"pt-BR",units:"METRIC"})
-            });}catch{fail("Não foi possível cotar o frete. Tente novamente.",503);}
-            if(!response.ok)fail("Não foi possível cotar o frete. Tente novamente.",503);
-            const payload=await response.json();const distance=payload.routes?.[0]?.distanceMeters;
+            });}catch{fail(deliveryErrors.DELIVERY_PROVIDER_UNAVAILABLE,503,"DELIVERY_PROVIDER_UNAVAILABLE");}
+            if(!response.ok)fail(deliveryErrors.DELIVERY_PROVIDER_UNAVAILABLE,503,"DELIVERY_PROVIDER_UNAVAILABLE");
+            let payload;
+            try{payload=await response.json();}catch{fail(deliveryErrors.DELIVERY_PROVIDER_UNAVAILABLE,503,"DELIVERY_PROVIDER_UNAVAILABLE");}
+            const distance=payload?.routes?.[0]?.distanceMeters;
+            if(!Number.isSafeInteger(distance)||distance<0)fail(deliveryErrors.DELIVERY_ROUTE_UNAVAILABLE,422,"DELIVERY_ROUTE_UNAVAILABLE");
             const cents=calculateCents(distance,settings);
             const token=jwt.sign({empresaId,address,distance,cents},secret,{algorithm:"HS256",expiresIn:"15m",audience:"petflow:frete",issuer:"petflow"});
             return {token,endereco:address,distancia_m:distance,frete_centavos:cents,expira_em:new Date(Date.now()+900000).toISOString()};
@@ -75,4 +84,4 @@ function createDeliveryService({secret,env=process.env,fetcher=fetch}) {
     }
     return {quote,verify,cep};
 }
-module.exports={normalizeAddress,calculateCents,createDeliveryService};
+module.exports={normalizeAddress,calculateCents,createDeliveryService,deliveryErrors};

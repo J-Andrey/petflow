@@ -48,7 +48,7 @@
                     <button class="btn" type="submit" id="quoteDelivery">Calcular frete</button>
                     <p id="deliveryStatus" role="status"></p>
                 </form>
-                <form class="cart-form" id="couponForm"><label>Cupom <input class="form-control" name="codigo" maxlength="40"></label><button class="btn" type="submit">Aplicar cupom</button></form>
+                <form class="cart-form" id="couponForm"><label>Cupom <input class="form-control" name="codigo" maxlength="40"></label><button class="btn" type="submit">Aplicar cupom</button><button class="btn" type="button" id="removeCoupon" disabled>Remover cupom</button><p id="couponStatus" role="status"></p></form>
                 <p id="cartBreakdown"></p>
                 <form class="cart-form" id="cartForm">
                     <label>
@@ -56,7 +56,7 @@
                         <textarea class="form-control" name="observacoes" placeholder="Ex: entregar à tarde"></textarea>
                     </label>
                     <div class="cart-total">
-                        <span>Total</span>
+                        <span id="cartTotalLabel">Subtotal sem frete</span>
                         <strong id="cartTotal">—</strong>
                     </div>
                     <button class="btn btn-primary" type="submit">Finalizar pedido</button>
@@ -68,6 +68,6 @@
     </main>
 
     <script src="/js/layout/public-header.js?v=20260811-1"></script>
-    <script src="/js/pages/cart/cart.js?v=20260810-1"></script>
+    <script src="/js/pages/cart/cart.js?v=20261008-1"></script>
 </body>
 </html>

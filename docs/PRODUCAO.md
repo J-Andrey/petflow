@@ -1,113 +1,102 @@
 # PetFlow original — operação e validação
 
-Atualizado em 05/10/2026. O trabalho preserva pets, funcionários, serviços, agenda e área clínica. O `.env` original não foi alterado. Não houve deploy nem transação com o PagBank de produção.
+Atualizado em 08/10/2026. A integração usa a API de produção do PagBank e o token existente. Uma consulta de checkout confirmou o acesso ao provedor, a referência do pedido e o link de pagamento. Não foi efetuado pagamento nem estorno real durante esta revisão.
 
-## Estado da entrega
+## Diagnóstico e correções
 
-As rotinas locais descritas abaixo foram implementadas e testadas. Isso não representa aprovação para venda ou publicação: ainda existem pendências de integração, cobertura e operação na seção final. O relatório não substitui revisão dos textos legais pelo responsável da empresa.
+O banco publicado estava na migração 112, embora o código dependesse das seguintes. Em 07/10, depois de backup e ensaio de restauração/migração local, foram aplicadas as migrações 113 a 122. `npm start` agora verifica as migrações antes de abrir a aplicação; o Railway deve consultar `/api/readiness`.
 
-## Implementação
+No deploy seguinte, a comparação estrita de checksums entre arquivos Windows/Linux interrompeu a inicialização. A revisão de 08/10 trata diferenças de final de linha sem aceitar alterações no conteúdo SQL nem reaplicar migrações existentes.
 
-| Área | Comportamento implementado |
+O frete foi definido pelo proprietário e salvo no ambiente local e no Railway: até 1 km grátis, R$ 3 por quilômetro excedente, cobrança proporcional e alcance máximo de 20 km. A cotação real entre a origem configurada e a Prefeitura de Santo André retornou 3.120 metros e R$ 6,36. O Google Routes continua sendo a fonte da distância.
+
+O cupom PETFLOW10 está ativo, com desconto de 10%. O servidor validava o cupom, mas a interface não confirmava sua aplicação e o total permanecia indisponível enquanto o frete falhava. O resumo deve distinguir desconto aplicado de frete ainda pendente.
+
+O GPS dependia do carregamento do Google Maps para iniciar o envio de posições. O compartilhamento foi separado do mapa, com envio inicial imediato, mensagens próprias para permissões/HTTPS e alternativa de navegação externa. O aparelho precisa conceder localização e manter a página aberta durante a rota.
+
+## Limpeza solicitada do cadastro
+
+Em 07/10 foram removidos cinco clientes, cinco contas de cliente e cinco pets sem histórico. Consultas, vacinação e agenda estavam vazias. Os 25 pedidos e o lançamento financeiro foram preservados. O ensaio em transação com rollback confirmou esses números antes da aplicação.
+
+Backup anterior à remoção: `.backups/petflow-before-customer-cleanup-2026-10-07-verified.dump`. O arquivo contém dados privados, está fora do Git e teve seu catálogo validado e restauração local concluída. Não incluí-lo em deploys ou anexos públicos.
+
+## Recursos implementados
+
+| Área | Comportamento |
 | --- | --- |
-| Sessões | JWT separado para cliente/equipe, empresa e versão de sessão; consulta da conta; revogação no logout e em alterações de acesso; recuperação de uso único. |
-| Administração | Usuários ADMIN/GERENTE, proteção do último administrador, cupons, auditoria, solicitações, leitura persistente de notificações. |
-| Cadastro | CPF, contatos, endereço, senha em bytes, aceite versionado; falha do envio crítico desfaz cadastro. |
-| Pedidos | Preços obtidos do banco, cupom e frete revalidados, endereço congelado, reserva transacional e baixa única. |
-| Estoque/compras | Concorrência testada; quantidade reservada protegida; compras em centavos, fornecedores/produtos da empresa; itens sem alteração avulsa; histórico preservado. |
-| Financeiro | Lançamentos de vendas controlados pelo pagamento; compra permite registrar pagamento preservando origem, valor e vínculo; cancelamento de lançamento manual preserva registro. |
-| Checkout | Tentativa durável antes da chamada externa, serialização e reaproveitamento; resposta incerta bloqueia nova criação; conciliação de checkout existente pelo painel. |
-| Cancelamento | Janela e GPS conservadores; reembolso com chave persistente, confirmação antes da devolução de estoque; fora da regra abre atendimento. |
-| Frete | CEP com alternativa, distância de carro, configuração de origem e tarifa, cotação assinada e expiração; falha não vira gratuidade. |
-| Entrega | Link privado de 12 horas salvo como hash, rotação/revogação, última posição, visualização por cliente/equipe e tela móvel do entregador. |
-| Agenda/clínica | Conflitos de horários, escopo por empresa/tutor/pet, registros clínicos administrativos, auditoria, preservação do histórico. |
-| Privacidade | Protocolos, exportação selecionada, resposta administrativa, revogação da newsletter, anonimização automática apenas sem histórico que exija análise. |
-| Operação | Health/readiness, checksums de migrações, verificação de links/sintaxe, suíte automatizada, backup custom e restauração confirmada. |
+| Sessões | Separação cliente/equipe, empresa e versão de sessão; revogação e recuperação de uso único. |
+| Cadastro | Validação de CPF, contatos, endereço, senha e aceites; envio crítico antes da confirmação do cadastro. |
+| Produtos e estoque | Campos comerciais completos, upload de foto, escopo por empresa, estoque reservado e histórico preservado. |
+| Pedidos | Preço e desconto calculados no banco, endereço congelado, frete assinado, reserva transacional e baixa única. |
+| Pagamento | Tentativa durável antes da chamada; resposta incerta bloqueia repetição; rejeição comprovada permite tentar o mesmo pedido. Meus pedidos oferece pagamento pendente e consulta de confirmação. |
+| Conciliação | Estornos parciais, disputas e reversões com lançamentos separados; consulta canônica ao provedor. |
+| Devolução | Aprovação pelo atendimento e recebimento físico por item; estoque só retorna após decisão explícita de reposição. |
+| Entrega | Link privado com expiração/revogação, GPS com timestamp e precisão, mapa e navegação externa. |
+| Agenda e clínica | Conflitos de horário, escopo por tutor/pet/empresa e preservação dos registros clínicos. |
+| Privacidade | Exportação ampliada por titular, protocolos, resposta administrativa, revogação de newsletter e análise de retenção. |
+| E-mails opcionais | Fila durável transacional com idempotência, espera progressiva e estados de falha/resultado incerto. |
 
-## Migrações
+## Migrações e publicação
 
-Preservar os arquivos já aplicados. Executar `npm run db:migrate` no pre-deploy, conforme `railway.json`. O script verifica checksums e serializa execuções. Não executar `105_remover_funcionarios.sql` do PetFlow v2.
+Preservar os SQL já aplicados. Nunca editar um arquivo para contornar o checksum. Mudanças reais exigem novo arquivo. Não executar a remoção de funcionários pertencente ao PetFlow v2.
 
-| Migração adicionada no trabalho | Finalidade |
+| Migração | Finalidade |
 | --- | --- |
-| 113_sessoes_e_operacao.sql | Revogação de sessões, tokens antigos e eventos idempotentes. |
-| 114_integridade_estoque.sql | Proteção de reservas e registro de movimentações. |
-| 115_entrega_posicao.sql | Observação, direção e velocidade da última posição. |
-| 116_agenda_clinica.sql | Duração da agenda, escopo clínico e preservação de registros. |
-| 117_reembolsos.sql | Registro durável e chave de reembolso. |
-| 118_tentativas_checkout.sql | Tentativa de checkout que sobrevive à perda da resposta. |
+| 113 | Revogação de sessões, tokens e histórico idempotente. |
+| 114 | Reservas e movimentações de estoque. |
+| 115 | Observação, direção e velocidade do GPS. |
+| 116 | Agenda e preservação clínica. |
+| 117 | Intenção durável de reembolso. |
+| 118 | Intenção durável de checkout. |
+| 119 | Fila de e-mails. |
+| 120 | Conciliação e devoluções. |
+| 121 | Vínculos de tutor, categoria, fornecedor e estoque restritos à empresa. |
+| 122 | Nova tentativa após rejeição comprovada do checkout. |
 
-A migração 113 revoga sessões afetadas e invalida links antigos de recuperação/confirmação em texto simples. Clientes podem precisar solicitar novo link. Ensaiar em cópia anonimizada de dados legados antes da migração real; o teste realizado usa banco vazio.
+A migração 113 invalida links antigos de confirmação/recuperação. A 121 usa constraints NOT VALID para preservar possíveis inconsistências legadas; novas gravações são verificadas, mas os registros antigos exigem revisão antes da validação integral.
 
-## Variáveis
+A configuração de deploy inclui pre-deploy e verificação no início por npm, além de readiness. A trava do migrador serializa execuções. O readiness verifica o manifesto inteiro. Referência: [configuração Railway](https://docs.railway.com/config-as-code/reference).
 
-Configurar somente o que estiver ausente, mantendo os valores existentes dos serviços já funcionais. Não copiar segredos para documentação, Git ou mensagens.
+## Configuração
 
-- Aplicação: `NODE_ENV=production`, `DATABASE_URL`, `DB_EXPECTED_NAME`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `APP_URL`, `FRONTEND_URL`.
-- Integrações existentes: `PAGSEGURO_BASE_URL`, `PAGSEGURO_TOKEN`, `PAGSEGURO_ENABLE_DEBIT`, `RESEND_API_KEY`, `EMAIL_FROM`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `MAX_FILE_SIZE`.
-- Novos recursos: `GOOGLE_MAPS_API_KEY`, `GOOGLE_MAPS_BROWSER_API_KEY`, `DELIVERY_ORIGIN_ADDRESS`, `DELIVERY_FREE_DISTANCE_KM`, `DELIVERY_PRICE_PER_KM`, `DELIVERY_MAX_DISTANCE_KM`, `DELIVERY_CHARGE_FRACTION`, `ORDER_RESERVATION_MINUTES`, `CANCELLATION_WINDOW_MINUTES`, `CANCELLATION_MIN_DISTANCE_METERS`, `PRIVACY_POLICY_VERSION`.
-- Testes isolados: `TEST_DATABASE_URL`, `TEST_DATABASE_NAME`.
-- Ferramentas de backup: `PGBIN` quando os binários PostgreSQL não estiverem no PATH; `PETFLOW_ENV_FILE` permite usar um arquivo separado ou inexistente quando todas as variáveis forem fornecidas explicitamente.
+Manter segredos exclusivamente nas variáveis do ambiente. Não copiar valores de tokens/chaves para Git, logs ou documentação.
 
-No Railway, usar a referência privada do PostgreSQL no serviço da aplicação, com o nome esperado do banco. URLs públicas da aplicação devem usar HTTPS. Restringir a chave Google do servidor à Routes API e a chave do navegador ao domínio autorizado e Maps JavaScript API. O endereço de origem e os preços de entrega precisam vir do proprietário.
+- Aplicação: NODE_ENV, DATABASE_URL, DB_EXPECTED_NAME, DB_SSL, JWT_SECRET, JWT_EXPIRES_IN, APP_URL, FRONTEND_URL.
+- Pagamento: PAGSEGURO_BASE_URL=https://api.pagseguro.com, PAGSEGURO_TOKEN e PAGSEGURO_ENABLE_DEBIT conforme liberação da conta.
+- E-mail/upload: RESEND_API_KEY, EMAIL_FROM e variáveis CLOUDINARY existentes.
+- Entrega: GOOGLE_MAPS_API_KEY, GOOGLE_MAPS_BROWSER_API_KEY, DELIVERY_ORIGIN_ADDRESS, DELIVERY_FREE_DISTANCE_KM=1, DELIVERY_PRICE_PER_KM=3, DELIVERY_MAX_DISTANCE_KM=20, DELIVERY_CHARGE_FRACTION=true.
+- Operação: ORDER_RESERVATION_MINUTES, CANCELLATION_WINDOW_MINUTES, CANCELLATION_MIN_DISTANCE_METERS, PRIVACY_POLICY_VERSION.
 
-## Validação reproduzível
+A chave Google do servidor precisa autorizar Routes API; a do navegador precisa autorizar o domínio e Maps JavaScript API. A origem deve corresponder ao endereço real da loja.
 
-1. Instalar dependências com `npm ci` na versão Node compatível com `package.json`.
-2. Executar `npm run release:check`. Inclui sintaxe, testes unitários/HTTP, links e auditoria npm.
-3. Criar um banco PostgreSQL **vazio e separado**, cujo nome comece com `petflow_test`. Definir `TEST_DATABASE_URL` e `TEST_DATABASE_NAME` para esse banco.
-4. Executar `npm run test:integration`. Esse teste não carrega `.env`, recusa banco já inicializado e aplica todas as migrações. Precisa de um novo banco vazio a cada execução. Nunca apontar ao banco de produção.
-5. Ensaiar backup/restauração e conferir health/readiness na aplicação conectada ao banco restaurado.
-6. Executar a homologação externa e os cenários manuais pendentes abaixo.
+## Verificação e backup
 
-`release:check` sozinho **não** executa o teste PostgreSQL nem certifica serviços externos.
+Executar `npm run release:check` para sintaxe, testes unitários/HTTP/DOM, links locais e auditoria de dependências. Esse comando não substitui PostgreSQL nem valida uma transação real.
 
-Na validação local, o teste PostgreSQL abrange reservas concorrentes de clientes diferentes, confirmação repetida, estoque e financeiro únicos, recuperação de uso único, isolamento, cancelamento/estorno com provedor simulado, expiração, conflitos de agenda, links GPS, registros clínicos, compras, proteção financeira, anonimização, lembretes e checkout com perda de resposta.
+Para `npm run test:integration`, criar banco vazio separado cujo nome comece com petflow_test e definir TEST_DATABASE_URL e TEST_DATABASE_NAME. O runner não carrega o .env, aplica as migrações e recusa banco já inicializado. Nunca usar o banco operacional nesse teste.
 
-## Backup e restauração
-
-Em ambiente com conexão explicitamente configurada:
+A integração PostgreSQL passou em 07/10, incluindo reserva concorrente, pagamento idempotente, checkout rejeitado seguido de recuperação, devoluções, conciliação, fila, privacidade, compras e isolamento entre empresas. Backup real foi restaurado em outro banco local e as migrações passaram antes da aplicação à produção.
 
 ```text
 npm run db:backup -- /destino-protegido/petflow.dump
-npm run db:restore -- /destino-protegido/petflow.dump --confirm-database NOME_EXATO_DO_BANCO_DESTINO
+npm run db:restore -- /destino-protegido/petflow.dump --confirm-database NOME_EXATO
 ```
 
-Usar caminhos reais adequados ao sistema operacional. `pg_dump` cria formato custom, e `pg_restore --list` valida o catálogo. O arquivo não é sobrescrito. A restauração usa transação única, sem apagar objetos existentes; destinar a banco vazio. `DB_EXPECTED_NAME`, quando definido, precisa coincidir com a conexão.
+A restauração destina-se a banco vazio, usa transação única e não apaga objetos existentes. DB_EXPECTED_NAME precisa coincidir com o destino. PGBIN informa o diretório dos binários PostgreSQL; PETFLOW_ENV_FILE permite ambiente separado. Definir retenção, armazenamento protegido e periodicidade dos próximos backups.
 
-O ensaio de 05/10 utilizou apenas dados sintéticos, criando um arquivo local ignorado pelo Git e restaurando-o em outro banco vazio. Isso não é um backup da produção. Antes do deploy real, definir armazenamento protegido, retenção, responsáveis, periodicidade e monitoramento dos backups.
+## Exceções operacionais
 
-## Operação de exceções
+- Checkout incerto: conferir a referência no PagBank e usar Conferir pagamentos no painel. Não apagar a intenção para forçar outra cobrança.
+- Reembolso incerto: consultar o provedor; não repetir o POST. Estorno de pedido em rota não comprova devolução física do produto.
+- E-mail FALHA ou INCERTA: analisar antes de repetir. A fila preserva a chave e remove conteúdo pessoal após sucesso ou retenção terminal. Ainda não há painel específico para investigar esses estados.
+- Privacidade: histórico comercial/clínico exige decisão de retenção. A exportação exclui senhas, tokens, payloads brutos do provedor, dados de terceiros e GPS do entregador.
 
-### Checkout sem resposta
+## Verificações ainda necessárias
 
-Abrir **Equipe, atendimento e privacidade → Conferir pagamentos**. Conferir no PagBank a referência interna do pedido e informar o identificador do checkout já existente. O servidor consulta o provedor e exige a mesma referência. Esta ação não cria cobrança nem aprova pagamento. Não apagar uma tentativa incerta para forçar repetição. Se não for possível determinar se o provedor criou o checkout, abrir atendimento e concluir a conferência operacional.
+- Uma compra acompanhada em produção, incluindo confirmação por webhook e percurso em aparelho real. A consulta autenticada de checkout não comprova todo o ciclo de pagamento.
+- GPS em dois aparelhos, permissões, perda de conexão e retomada; navegador em segundo plano pode suspender a captura.
+- Domínio/envio real de e-mail e upload Cloudinary.
+- Razão social, CNPJ, endereço e contatos aprovados para os textos públicos, além da política de retenção da empresa.
+- Operação das exceções de e-mail, backup periódico e acompanhamento de deploys.
 
-O cabeçalho de idempotência é enviado, mas a proteção local contra repetição não depende de o endpoint aceitá-lo. Referências: [checkout hospedado](https://developer.pagbank.com.br/docs/checkout) e [idempotência PagBank](https://developer.pagbank.com.br/docs/chaves-publicas-e-de-idempotencia).
-
-### Reembolso e disputa
-
-Reembolsos incertos permanecem registrados. Consultas posteriores verificam a cobrança; não repetem automaticamente a ordem de estorno. Eventos externos de estorno/chargeback em pedido pago geram alerta persistente sem devolver mercadorias nem regredir uma entrega por evento antigo. A conciliação contábil de disputas, estornos parciais e devoluções após entrega ainda exige evolução específica e validação operacional.
-
-### Privacidade
-
-Pedidos com histórico comercial, agenda, atendimento ou vacinação são encaminhados para análise de retenção; a operação automática não apaga esses dados. A revogação automática do painel é específica para newsletter. Outras finalidades precisam de análise e resposta. A exportação atual contém um conjunto selecionado dos dados; não representa portabilidade completa de todos os documentos clínicos.
-
-## Pendências antes da liberação comercial
-
-### Informações e validações externas
-
-- Razão social, CNPJ, endereço, contato de atendimento/privacidade e critérios aprovados de retenção para finalizar Política de Privacidade e Termos com dados reais.
-- Origem, tarifa, área máxima e chaves Google restritas para validar a cotação real.
-- Homologação das alterações de checkout/estorno/webhook em conta de testes; o token de produção existente não foi usado nos testes.
-- Entrega de e-mails e domínio Resend, upload Cloudinary e GPS em dois aparelhos, inclusive perda de conexão e permissões de localização.
-- Ensaio das migrações sobre uma cópia anonimizada do banco existente, backup real e revisão do deploy Railway.
-
-### Trabalho de software ainda necessário
-
-- Completar a conciliação de chargebacks/estornos parciais e o fluxo de devolução após entrega com efeitos contábeis definidos.
-- Implementar fila durável e política de novas tentativas para e-mails opcionais; atualmente falhas não desfazem transações, mas o reenvio não é garantido.
-- Ampliar exportação de dados e procedimentos de retenção/anonimização parcial conforme decisão documentada da empresa.
-- Ampliar cobertura automática e visual dos fluxos legados, especialmente produtos completos, compras/devoluções, edição de estoque, notificações e formulários em dispositivos móveis. Os testes existentes não cobrem integralmente todos os cenários solicitados.
-
-Não há autorização de publicação derivada deste documento. A existência de testes passando não equivale a conclusão de todos os requisitos do pedido original.
+Os resultados automatizados comprovam os cenários executados; não certificam todos os requisitos comerciais ou integrações externas.
