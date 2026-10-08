@@ -10,6 +10,12 @@ require("dotenv").config({quiet:true,path:process.env.PETFLOW_ENV_FILE||".env"})
 
 const SQL_DIR = path.join(__dirname, "..", "database", "sql");
 
+function migrationChecksum(sql) {
+    return crypto.createHash("sha256")
+        .update(String(sql).replace(/\r\n?/g, "\n"), "utf8")
+        .digest("hex");
+}
+
 const pool = new Pool(buildDbOptions());
 
 async function run() {
@@ -32,7 +38,7 @@ async function run() {
         for (const file of files) {
             const filePath = path.join(SQL_DIR, file);
             const sql = await fs.readFile(filePath, "utf8");
-            const checksum = crypto.createHash("sha256").update(sql).digest("hex");
+            const checksum = migrationChecksum(sql);
             const applied = await client.query(
                 "SELECT checksum FROM schema_migrations WHERE nome = $1",
                 [file]
