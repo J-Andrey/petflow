@@ -63,6 +63,8 @@ A migração 113 invalida links antigos de confirmação/recuperação. A 121 us
 
 A configuração de deploy inclui pre-deploy e verificação no início por npm, além de readiness. A trava do migrador serializa execuções. O readiness verifica o manifesto inteiro. Referência: [configuração Railway](https://docs.railway.com/config-as-code/reference).
 
+Em 09/10, três builds falharam antes de instalar dependências porque o helper Alpine do Railpack 0.40.1 recebeu 429/504 do Docker Hub. `railpack.json` configura `steps.install.secrets=["*"]`: pela implementação desta versão, a instalação usa o hash global já fornecido pelo Railway e dispensa o helper que calcula hashes por subconjunto. As variáveis já eram montadas em todos os comandos pelo Railpack; esse ajuste muda a invalidação do cache, sem gravar valores no arquivo. Qualquer mudança de variável passa a invalidar a etapa de instalação. `deployOutputs=[]` conserva as entradas de imagem geradas pelo provider e evita adicionar uma camada extra da instalação. Referências: [configuração Railpack](https://railpack.com/config/file/) e [implementação 0.40.1](https://github.com/railwayapp/railpack/blob/v0.40.1/buildkit/build_llb/build_graph.go).
+
 ## Configuração
 
 Manter segredos exclusivamente nas variáveis do ambiente. Não copiar valores de tokens/chaves para Git, logs ou documentação.
