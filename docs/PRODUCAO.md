@@ -26,6 +26,10 @@ Em 07/10 foram removidos cinco clientes, cinco contas de cliente e cinco pets se
 
 Backup anterior à remoção: `.backups/petflow-before-customer-cleanup-2026-10-07-verified.dump`. O arquivo contém dados privados, está fora do Git e teve seu catálogo validado e restauração local concluída. Não incluí-lo em deploys ou anexos públicos.
 
+Em 09/10, a nova limpeza solicitada removeu um cliente e uma conta de cliente do PetFlow original. Não havia pets vinculados. O cadastro ficou com zero clientes, contas e pets; os 27 pedidos, seus itens e os registros financeiros foram preservados, com os pedidos desvinculados do cadastro removido. A operação foi ensaiada com rollback antes do commit, e a conferência posterior confirmou os contadores e a preservação do histórico comercial.
+
+Backup anterior à nova remoção: `.backups/petflow-before-customer-retest-2026-10-09.dump`, privado e fora do Git, com catálogo validado. O projeto PetFlow v2 não foi alterado.
+
 ## Recursos implementados
 
 O checkout público agora recebe uma chave de intenção por tentativa. O servidor normaliza itens, endereço, cupom e forma de pagamento, grava a intenção com o pedido na mesma transação e recupera o mesmo pedido em um reenvio após perda de resposta ou expiração da cotação. Uma chave reutilizada com dados diferentes é rejeitada; a interface preserva a sacola até receber uma resposta definitiva. Cupons que zerariam o pedido são rejeitados antes do commit.
@@ -82,6 +86,8 @@ Manter segredos exclusivamente nas variáveis do ambiente. Não copiar valores d
 
 A chave Google do servidor precisa autorizar Routes API; a do navegador precisa autorizar o domínio e Maps JavaScript API. A origem deve corresponder ao endereço real da loja.
 
+Em 09/10, o Cloudinary do serviço `system-petflow` foi validado com o identificador real `deeapnolt`. `CLOUDINARY_URL` já apontava para esse ambiente, mas `CLOUDINARY_CLOUD_NAME=PetFlow` sobrescrevia o identificador e causava o erro 401. A variável explícita foi corrigida para `deeapnolt`, sem substituir as chaves. O ping e um upload real de imagem temporária passaram; a imagem de diagnóstico foi removida em seguida. O serviço foi reiniciado, e health/readiness e os arquivos publicados do GPS foram conferidos. O nome exibido no painel pode ser PetFlow, mas não substitui o identificador técnico usado na conexão. Referência: [nomes de ambientes do Cloudinary](https://cloudinary.com/documentation/solution_overview#view_or_update_your_cloud_name).
+
 ## Verificação e backup
 
 Executar `npm run release:check` para sintaxe, testes unitários/HTTP/DOM, links locais e auditoria de dependências. Esse comando não substitui PostgreSQL nem valida uma transação real.
@@ -110,7 +116,7 @@ A restauração destina-se a banco vazio, usa transação única e não apaga ob
 
 - Uma compra acompanhada em produção, incluindo confirmação por webhook e percurso em aparelho real. O checkout de R$ 6,00 expirado comprova criação, frete e encerramento, mas não o ciclo de aprovação. Um novo checkout precisa ser criado pelo fluxo normal de compra quando o usuário estiver pronto para confirmar o cartão.
 - GPS em dois aparelhos, permissões, perda de conexão e retomada; navegador em segundo plano pode suspender a captura.
-- Domínio/envio real de e-mail e upload Cloudinary. As variáveis de produção estão presentes e iguais às locais; o ping da API administrativa do Cloudinary ainda responde 401, então o upload real não foi declarado validado. A chave Resend é restrita a envio e responde 401 ao endpoint administrativo de domínios, sem invalidar as mensagens já aceitas para a fila.
+- Domínio/envio real de e-mail. A chave Resend é restrita a envio e responde 401 ao endpoint administrativo de domínios, sem invalidar as mensagens já aceitas para a fila. O ping e o upload real do Cloudinary foram validados em 09/10, conforme o registro de configuração acima.
 - Razão social, CNPJ, endereço e contatos aprovados para os textos públicos, além da política de retenção da empresa.
 - Operação das exceções de e-mail, backup periódico e acompanhamento de deploys.
 
