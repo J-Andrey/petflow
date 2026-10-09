@@ -40,6 +40,12 @@ async function consultarCobranca(id) {
     try{return (await createClient().get("/charges/"+encodeURIComponent(id))).data;}
     catch(error){throw buildPagSeguroError(error);}
 }
+async function consultarPedido(id) {
+    if (!/^ORDE_[A-Za-z0-9-]{1,100}$/.test(id || ""))
+        throw Object.assign(new Error("Identificador de pedido PagBank inválido."), { status: 400 });
+    try { return (await createClient().get("/orders/" + encodeURIComponent(id))).data; }
+    catch (error) { throw buildPagSeguroError(error); }
+}
 async function consultarChargeback(id) {
     if(!/^CBKS_[A-Za-z0-9-]{1,100}$/.test(id))throw Object.assign(new Error("Identificador de chargeback inválido."),{status:400});
     try{return (await createClient().get("/chargebacks/"+encodeURIComponent(id))).data;}
@@ -101,12 +107,13 @@ function buildCheckoutPayload(pedido) {
     if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || origin.search || origin.hash)
         rejectBeforeCheckout("Confira o endereço configurado da loja para iniciar o pagamento.", "invalid_app_url", 503);
     const webhookUrl = `${appUrl}/api/public/pagamentos/webhook`;
+    const ordersUrl = `${appUrl}/meus-pedidos?pagamento=retorno&pedido=${encodeURIComponent(pedido.id)}`;
 
     if (!items.length) {
         rejectBeforeCheckout("O pedido não possui itens para pagamento.", "invalid_order_items");
     }
 
-    if (webhookUrl.length > 100 || `${appUrl}/meus-pedidos`.length > 255)
+    if (webhookUrl.length > 100 || ordersUrl.length > 255)
         rejectBeforeCheckout("O endereço da loja excede o limite aceito pelo PagBank. Confira a configuração.", "invalid_app_url", 503);
     const paymentItems = items.map(item => {
         const quantity = Number(item.quantidade);
@@ -124,8 +131,8 @@ function buildCheckoutPayload(pedido) {
     return {
         reference_id: String(pedido.id),
         customer_modifiable: true,
-        return_url: `${appUrl}/meus-pedidos`,
-        redirect_url: `${appUrl}/meus-pedidos`,
+        return_url: ordersUrl,
+        redirect_url: ordersUrl,
         redirect_waiting_time: 5,
         notification_urls: [
             webhookUrl
@@ -390,6 +397,7 @@ function buildPagSeguroError(error) {
 }
 
 module.exports = {
+    consultarPedido,
     validateCheckout,
     consultarChargeback,
     consultarCobranca,

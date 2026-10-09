@@ -260,7 +260,7 @@
       $("editorTitle").textContent = "Conferir pagamento";
       const info = document.createElement("p");
       info.textContent =
-        "Confira a referência do pedido no painel PagBank. Informe o identificador do checkout já criado para recuperar o vínculo; esta ação não cria cobrança nem aprova pagamento.";
+        "Confira a referência do pedido no painel PagBank. Informe o identificador do checkout já criado para recuperar o vínculo; o PetFlow consulta o provedor e confirma o pedido somente se a cobrança vinculada já estiver paga. Esta ação não cria cobrança.";
       $("editorForm").append(info);
       field("checkout_id", "Identificador do checkout");
       const save = document.createElement("button");
@@ -270,14 +270,16 @@
         event.preventDefault();
         save.disabled = true;
         try {
-          await api(
+          const result = await api(
             "checkouts/" + record.id + "/conciliar",
             "POST",
             Object.fromEntries(new FormData(event.target)),
           );
           await load();
           $("status").textContent =
-            "Vínculo recuperado. O pagamento continuará sendo confirmado pelo PagBank.";
+            result.data.status === "PAGAMENTO_APROVADO" ? "Pagamento confirmado no PagBank. Pedido recebido pela loja."
+              : result.data.status === "CANCELADA" && result.data.pagseguro_status === "PAID" ? "Pagamento confirmado em pedido cancelado. Confira a conciliação para tratar o atendimento."
+              : "Vínculo recuperado. Situação do pedido: " + result.data.status + ".";
         } catch (error) {
           $("status").textContent = error.message;
         } finally {

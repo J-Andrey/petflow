@@ -63,7 +63,7 @@ function setupPublicLogin() {
             );
 
             saveCustomer(payload.data);
-            window.location.href = new URLSearchParams(location.search).get("retorno")==="sacola"?"/sacola":"/";
+            window.location.href = publicLoginDestination();
         } catch (error) {
             setStatus(status, error.message);
         }
@@ -220,60 +220,130 @@ function clearLegacyPublicSession() {
     localStorage.removeItem("petflow_public_cart");
 }
 
+function returningPaymentId() {
+    const params = new URLSearchParams(window.location.search || "");
+    const id = params.get("pedido") || "";
+    return params.get("pagamento") === "retorno" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id) ? id : null;
+}
+
+function publicLoginDestination() {
+    const params = new URLSearchParams(window.location.search || "");
+    const id = params.get("pedido") || "";
+    if (params.get("retorno") === "pedidos" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id)) {
+        return "/meus-pedidos?pagamento=retorno&pedido=" + encodeURIComponent(id);
+    }
+    return params.get("retorno") === "sacola" ? "/sacola" : "/";
+}
+
+function paymentStatusMessage(payment = {}) {
+    if (payment.status === "CANCELADA") {
+        return payment.pagseguroStatus === "PAID"
+            ? "O PagBank recebeu o pagamento após o encerramento deste pedido. Entre em contato com o atendimento para conferência."
+            : "Este pedido foi encerrado. Confira o atendimento antes de iniciar uma nova compra.";
+    }
+    if (["PAGAMENTO_APROVADO", "EM_SEPARACAO", "SAIU_PARA_ENTREGA", "ENTREGUE", "FINALIZADA"].includes(payment.status)) {
+        return "Pagamento confirmado. Situação do pedido: " + formatStatus(payment.status) + ".";
+    }
+    if (["IN_ANALYSIS", "AUTHORIZED"].includes(payment.pagseguroStatus)) {
+        return "O PagBank está analisando o pagamento. Seu pedido continua salvo; aguarde a confirmação.";
+    }
+    if (payment.pagseguroStatus === "DECLINED") {
+        return "O cartão foi recusado. Use Continuar pagamento para tentar novamente no mesmo pedido.";
+    }
+    return "O pagamento ainda aguarda confirmação. Você pode continuar ou consultar o pagamento deste pedido.";
+}
+
 async function setupPublicOrders() {
     const list = document.getElementById("publicOrdersList");
-
-    if (!list) {
+    if (!list) return;
+    const returnId = returningPaymentId();
+    if (!getCustomerToken()) {
+        window.location.href = returnId ? "/login?retorno=pedidos&pedido=" + encodeURIComponent(returnId) : "/login";
         return;
     }
-
-    const token = getCustomerToken();
-
-    if (!token) {
-        window.location.href = "/login";
-        return;
-    }
-
     const status = document.getElementById("ordersStatus");
+    let checkVersion = 0, timer, disposed = false;
+    function stopChecking() {
+        checkVersion++;
+        clearTimeout(timer);
+    }
+    window.addEventListener?.("pagehide", () => { disposed = true; stopChecking(); });
+
+    async function checkPayment(id, attempt, version) {
+        const result = await request("/pagamentos/" + encodeURIComponent(id), "GET");
+        if (disposed || version !== checkVersion) return;
+        const payload = await request("/clientes/pedidos", "GET");
+        if (disposed || version !== checkVersion) return;
+        renderOrders(list, Array.isArray(payload.data) ? payload.data : []);
+        setStatus(status, paymentStatusMessage(result.payment));
+        const pending = result.payment?.status === "AGUARDANDO_PAGAMENTO" && ["ACTIVE", "WAITING", "IN_ANALYSIS", "AUTHORIZED"].includes(result.payment?.pagseguroStatus);
+        if (!pending || attempt === null) return;
+        if (attempt >= 5) {
+            setStatus(status, paymentStatusMessage(result.payment) + " Use Consultar pagamento para conferir novamente em instantes.");
+            return;
+        }
+        timer = setTimeout(() => {
+            if (disposed || version !== checkVersion || !getCustomerToken()) return;
+            checkPayment(id, attempt + 1, version).catch(error => {
+                if (version === checkVersion) setStatus(status, "Pedido #" + shortId(id) + ": " + error.message + " Use Consultar pagamento para tentar novamente.");
+            });
+        }, 5000);
+    }
 
     list.addEventListener("click", async event => {
         const button = event.target.closest("[data-pay-order], [data-check-payment]");
-
-        if (!button) {
-            return;
-        }
-
+        if (!button) return;
+        stopChecking();
+        const version = checkVersion;
         button.disabled = true;
         const id = button.dataset.payOrder || button.dataset.checkPayment;
         setStatus(status, button.dataset.payOrder ? "Preparando o pagamento do pedido #" + shortId(id) + "..." : "Consultando o pagamento no PagBank...");
         try {
             if (button.dataset.payOrder) {
                 const payload = await request("/pagamentos", "POST", { vendaId: id });
+                if (disposed || version !== checkVersion) return;
                 let target;
                 try { target = new URL(payload.payment?.checkoutUrl || ""); }
                 catch { throw new Error("O pagamento não retornou um endereço válido. Consulte o atendimento com a referência deste pedido."); }
                 if (target.protocol !== "https:") throw new Error("O pagamento não retornou um endereço válido. Consulte o atendimento com a referência deste pedido.");
                 window.location.href = target.href;
             } else {
-                const payment = await request("/pagamentos/" + encodeURIComponent(id), "GET");
-                const payload = await request("/clientes/pedidos", "GET");
-                renderOrders(list, Array.isArray(payload.data) ? payload.data : []);
-                setStatus(status, payment.payment?.status === "PAGAMENTO_APROVADO" ? "Pagamento confirmado. A loja já recebeu seu pedido." : "Situação atual: " + formatStatus(payment.payment?.status) + ".");
+                await checkPayment(id, null, version);
             }
         } catch (error) {
-            setStatus(status, "Pedido #" + shortId(id) + ": " + (error.message || "Não foi possível consultar o pagamento.") + " Você pode acompanhar este pedido aqui.");
+            if (version === checkVersion) setStatus(status, "Pedido #" + shortId(id) + ": " + (error.message || "Não foi possível consultar o pagamento.") + " Você pode acompanhar este pedido aqui.");
         } finally {
             button.disabled = false;
         }
     });
 
-    try {
-        const payload = await request("/clientes/pedidos", "GET");
-        renderOrders(list, Array.isArray(payload.data) ? payload.data : []);
-        setStatus(status, "");
-    } catch (error) {
-        setStatus(status, error.message || "Não foi possível carregar seus pedidos.");
+    async function refreshOrders() {
+        const initialVersion = checkVersion;
+        try {
+            const payload = await request("/clientes/pedidos", "GET");
+            if (disposed || initialVersion !== checkVersion) return;
+            const orders = Array.isArray(payload.data) ? payload.data : [];
+            renderOrders(list, orders);
+            setStatus(status, "");
+            if (returnId && orders.some(order => order.id === returnId)) {
+                setStatus(status, "Conferindo o pagamento do pedido #" + shortId(returnId) + " no PagBank...");
+                await checkPayment(returnId, 0, initialVersion);
+            }
+        } catch (error) {
+            if (!disposed && initialVersion === checkVersion) setStatus(status, error.message || "Não foi possível carregar seus pedidos. Use Consultar pagamento para conferir novamente.");
+        }
     }
+    window.addEventListener?.("pageshow", async event => {
+        if (!event.persisted) return;
+        disposed = false;
+        stopChecking();
+        if (!getCustomerToken()) {
+            window.location.href = returnId ? "/login?retorno=pedidos&pedido=" + encodeURIComponent(returnId) : "/login";
+            return;
+        }
+        await refreshOrders();
+    });
+    await refreshOrders();
 }
 
 function renderOrders(list, orders) {

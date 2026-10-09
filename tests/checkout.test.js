@@ -64,6 +64,8 @@ test("payload de produção usa CPF e centavos exatos; referência local não vi
     assert.equal(payload.customer.tax_id, "52998224725"); assert.deepEqual(payload.customer.phone, { country: "+55", area: "11", number: "999999999" });
     assert.equal(payload.items[0].unit_amount, 1029); assert.equal(payload.discount_amount, 79); assert.equal(payload.shipping.amount, 500);
     assert.equal(payload.payment_notification_urls[0], "https://loja.example/api/public/pagamentos/webhook");
+    assert.equal(payload.redirect_url, "https://loja.example/meus-pedidos?pagamento=retorno&pedido=" + id);
+    assert.equal(payload.return_url, payload.redirect_url);
     assert.throws(() => f.gateway.validateCheckout({ ...f.order, valor_final: "24.80" }), /diverge/);
     assert.throws(() => f.gateway.validateCheckout({ ...f.order, desconto: "0.001" }), /monetário/);
 });

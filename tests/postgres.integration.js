@@ -50,7 +50,7 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
       await client.query(sql);
       await client.query(
         "INSERT INTO schema_migrations(nome,checksum) VALUES($1,$2) ON CONFLICT DO NOTHING",
-        [file, crypto.createHash("sha256").update(sql).digest("hex")],
+        [file, crypto.createHash("sha256").update(sql.replace(/\r\n?/g, "\n")).digest("hex")],
       );
       await client.query("COMMIT");
     } catch (error) {
@@ -237,6 +237,23 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     ).rows[0].n,
     1,
   );
+  // PAID após cancelamento precisa conservar evidência para a conciliação,
+  // sem criar receita, baixar estoque ou ressuscitar a entrega.
+  const lateOrder = (await pool.query("INSERT INTO vendas(empresa_id,cliente_id,forma_pagamento,status,valor_total,pagseguro_checkout_id) VALUES($1,$2,'PAGBANK','CANCELADA',6,'CHEC_LATE') RETURNING id", [company, customer.id])).rows[0];
+  await pool.query("INSERT INTO itens_venda(empresa_id,venda_id,produto_id,quantidade,preco_unitario,desconto,subtotal) VALUES($1,$2,$3,1,6,0,6)", [company, lateOrder.id, product]);
+  const beforeLateStock = (await pool.query("SELECT quantidade FROM estoque WHERE produto_id=$1", [product])).rows[0].quantidade;
+  for (let n = 0; n < 2; n++) await saleService.confirmarPagamento(company, lateOrder.id, { pagseguroStatus: "PAID", pagseguroOrderId: "ORDE_LATE", pagseguroChargeId: "CHAR_LATE", pagseguroResponse: { reference_id: lateOrder.id } });
+  const lateSaved = (await pool.query("SELECT status,pagseguro_status,pagseguro_order_id,pagseguro_charge_id,conciliacao_status,estoque_baixado_em FROM vendas WHERE id=$1", [lateOrder.id])).rows[0];
+  assert.equal(lateSaved.status, "CANCELADA");
+  assert.equal(lateSaved.pagseguro_status, "PAID");
+  assert.equal(lateSaved.pagseguro_order_id, "ORDE_LATE");
+  assert.equal(lateSaved.pagseguro_charge_id, "CHAR_LATE");
+  assert.equal(lateSaved.conciliacao_status, "PENDENTE");
+  assert.equal(lateSaved.estoque_baixado_em, null);
+  assert.equal((await pool.query("SELECT quantidade FROM estoque WHERE produto_id=$1", [product])).rows[0].quantidade, beforeLateStock);
+  assert.equal((await pool.query("SELECT COUNT(*)::integer AS n FROM financeiro WHERE origem='VENDA' AND referencia_id=$1", [lateOrder.id])).rows[0].n, 0);
+  assert.equal((await pool.query("SELECT COUNT(*)::integer AS n FROM notificacoes_admin WHERE venda_id=$1 AND titulo='Pagamento após cancelamento'", [lateOrder.id])).rows[0].n, 1);
+
   const auth = require("../models/authModel");
   await pool.query(
     "UPDATE usuarios SET perfil='ADMIN',token_recuperacao=$1,token_expiracao=NOW()+INTERVAL '1 hour' WHERE id=$2",
@@ -784,6 +801,17 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     true,
   );
   assert.equal(uncertainCalls, 1);
+  const recoveredCharge = { id: "CHAR_RECOVERED", status: "PAID", payment_method: { type: "CREDIT_CARD" }, amount: { currency: "BRL", value: 1500, summary: { total: 1500, paid: 1500, refunded: 0 } } };
+  const recoveredGateway = {
+    async consultarCheckout() { return { checkoutId: "CHEC_RECOVERED", checkoutUrl: "https://example.test/recovered", chargeId: recoveredCharge.id, orderId: "ORDE_RECOVERED", status: "PAID", raw: { reference_id: uncertainOrder.id, status: "ACTIVE", orders: [{ id: "ORDE_RECOVERED", charges: [recoveredCharge] }] } }; },
+    async consultarCobranca() { return recoveredCharge; },
+  };
+  const beforeRecoveredStock = (await pool.query("SELECT quantidade FROM estoque WHERE produto_id=$1", [product])).rows[0].quantidade;
+  assert.equal((await checkoutService.reconcile(db, actor, uncertainOrder.id, "CHEC_RECOVERED", recoveredGateway)).status, "PAGAMENTO_APROVADO");
+  assert.equal((await checkoutService.reconcile(db, actor, uncertainOrder.id, "CHEC_RECOVERED", recoveredGateway)).status, "PAGAMENTO_APROVADO");
+  assert.equal((await pool.query("SELECT quantidade FROM estoque WHERE produto_id=$1", [product])).rows[0].quantidade, beforeRecoveredStock - 1);
+  assert.equal((await pool.query("SELECT COUNT(*)::integer AS n FROM financeiro WHERE origem='VENDA' AND referencia_id=$1", [uncertainOrder.id])).rows[0].n, 1);
+  assert.equal((await pool.query("SELECT pagseguro_charge_id FROM vendas WHERE id=$1", [uncertainOrder.id])).rows[0].pagseguro_charge_id, recoveredCharge.id);
   await saleService.atualizarStatusPagamento(company, order.id, "CANCELADA", {
     pagseguroStatus: "CHARGEBACK",
   });

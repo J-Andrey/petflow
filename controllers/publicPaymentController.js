@@ -5,6 +5,7 @@ const VendaService = require("../services/vendaService");
 const pagseguroService = require("../services/pagseguroService");
 const db = require("../database/connection");
 const reconciliation = require("../services/paymentReconciliationService");
+const verification = require("../services/paymentVerificationService");
 
 async function criarPagamento(request, response, next) {
   try {
@@ -75,37 +76,14 @@ async function consultarPagamento(request, response, next) {
       });
     }
 
-    const checkout = await pagseguroService.consultarCheckout(
-      pedido.pagseguro_checkout_id,
-    );
-
-    const status = pagseguroService.mapStatusToVenda(checkout.status);
-
-    const dadosPagamento = {
-      pagseguroStatus: checkout.status,
-      pagseguroOrderId: checkout.orderId,
-      pagseguroChargeId: checkout.chargeId,
-      pagseguroResponse: checkout.raw,
-      formaPagamento: checkout.paymentMethod,
-    };
-
-    const vendaAtualizada =
-      status === "PAGAMENTO_APROVADO"
-        ? await VendaService.confirmarPagamento(
-            customer.empresaId,
-            pedido.pagseguro_checkout_id,
-            dadosPagamento,
-          )
-        : await VendaService.atualizarStatusPagamento(
-            customer.empresaId,
-            pedido.pagseguro_checkout_id,
-            status,
-            dadosPagamento,
-          );
+    const payment = await verification.resolve(pedido, pagseguroService);
+    const vendaAtualizada = payment.status === "PAGAMENTO_APROVADO"
+      ? await VendaService.confirmarPagamento(customer.empresaId, pedido.id, payment.data)
+      : await VendaService.atualizarStatusPagamento(customer.empresaId, pedido.id, payment.status, payment.data);
 
     await reconciliation.receivePaymentEvent(db, {
       referenceId: pedido.id,
-      chargeId: checkout.chargeId,
+      chargeId: payment.chargeId,
     }, pagseguroService);
 
     return response.status(200).json({
@@ -147,32 +125,24 @@ async function receberWebhook(request, response, next) {
       });
     }
 
-    const dadosPagamento = {
-      pagseguroStatus: event.pagseguroStatus,
-      pagseguroOrderId: event.orderId,
-      pagseguroChargeId: event.chargeId,
-      pagseguroResponse: event.raw,
-      formaPagamento: event.paymentMethod,
-    };
+    const { rows } = await db.query(
+      "SELECT * FROM vendas WHERE id::text=$1 OR pagseguro_checkout_id=$1 OR pagseguro_order_id=$1 OR pagseguro_charge_id=$1",
+      [event.referenceId],
+    );
+    if (rows.length > 1) throw Object.assign(new Error("Referência de pagamento ambígua."), { status: 409 });
+    const pedido = rows[0];
+    if (!pedido) return response.status(200).json({ success: true, message: "Webhook recebido sem pedido vinculado." });
 
-    if (event.vendaStatus === "PAGAMENTO_APROVADO") {
-      await VendaService.confirmarPagamento(
-        null,
-        event.referenceId,
-        dadosPagamento,
-      );
+    const payment = await verification.resolve(pedido, pagseguroService, event);
+    if (payment.status === "PAGAMENTO_APROVADO") {
+      await VendaService.confirmarPagamento(pedido.empresa_id, pedido.id, payment.data);
     } else {
-      await VendaService.atualizarStatusPagamento(
-        null,
-        event.referenceId,
-        event.vendaStatus,
-        dadosPagamento,
-      );
+      await VendaService.atualizarStatusPagamento(pedido.empresa_id, pedido.id, payment.status, payment.data);
     }
 
-    // Um estorno parcial permanece PAID no PagBank. Consultar o resumo em
-    // qualquer notificação captura esse caso e evita confiar em payload antigo.
-    await reconciliation.receivePaymentEvent(db, event, pagseguroService);
+    // A consulta canônica escolhe a cobrança paga entre várias tentativas.
+    // A conciliação registra eventuais estornos sobre essa mesma cobrança.
+    await reconciliation.receivePaymentEvent(db, { referenceId: pedido.id, chargeId: payment.chargeId }, pagseguroService);
 
     return response.status(200).json({
       success: true,

@@ -470,3 +470,106 @@ test("endpoint sem mapa ou sem posição não consulta Routes e não expõe toke
   await request("");
   assert.equal(routes, 1);
 });
+
+async function trackingServer(t) {
+  const express = require("express");
+  const orderId = "11111111-1111-4111-8111-111111111111";
+  const current = {
+    venda_id: orderId,
+    token_hash: tracking.hash(token),
+    latitude: null,
+    longitude: null,
+    endereco_entrega: { endereco: "Rua de teste", numero: "1" },
+  };
+  const router = load("routes/trackingRoutes.js", {
+    "../database/connection": {
+      query: async () => ({ rows: [current] }),
+    },
+    "../services/trackingService": {
+      ...tracking,
+      driver: async (db, value) => {
+        if (![token, "b".repeat(64)].includes(value))
+          throw Object.assign(new Error("Link expirado ou revogado."), {
+            status: 401,
+          });
+        return { ...current, token_hash: tracking.hash(value) };
+      },
+      position: async () => ({ atualizada: true }),
+      route: async () => null,
+    },
+    "../middlewares/customerAuthMiddleware": (req, res, next) => {
+      req.customer = { id: "cliente", empresaId: "empresa", type: "customer" };
+      next();
+    },
+    "../middlewares/authMiddleware": (req, res, next) => {
+      req.user = { id: "admin", empresaId: "empresa", type: "admin" };
+      next();
+    },
+  });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/entregas", router);
+  app.use((error, req, res, next) =>
+    res.status(error.status || 500).json({ success: false, message: error.message }),
+  );
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = "http://127.0.0.1:" + server.address().port + "/api/entregas/";
+  return {
+    orderId,
+    request: (endpoint, authorization = "Delivery " + token, method = "GET") =>
+      fetch(base + endpoint, {
+        method,
+        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        ...(method === "POST" ? { body: "{}" } : {}),
+      }),
+  };
+}
+
+test("GPS e acompanhamento na mesma rede não compartilham a cota de requisições", async (t) => {
+  const { request, orderId } = await trackingServer(t);
+  // Em um minuto: 12 polls por timer + 12 posições + 12 polls após enviar GPS.
+  // O cliente acompanha com mais 12 polls pelo mesmo IP.
+  for (let tick = 0; tick < 12; tick++) {
+    for (const [endpoint, authorization, method] of [
+      ["entregador?rota=0", "Delivery " + token, "GET"],
+      ["entregador/localizacao", "Delivery " + token, "POST"],
+      ["entregador?rota=0", "Delivery " + token, "GET"],
+      ["cliente/" + orderId + "?rota=0", "Bearer cliente", "GET"],
+    ]) {
+      const response = await request(endpoint, authorization, method);
+      assert.equal(response.status, 200, endpoint + " no intervalo " + tick);
+      await response.json();
+    }
+  }
+});
+
+test("limite de um link privado não bloqueia outro link e retorna orientação JSON", async (t) => {
+  const { request } = await trackingServer(t);
+  for (let index = 0; index < 40; index++) {
+    const response = await request("entregador?rota=0");
+    assert.equal(response.status, 200);
+    await response.json();
+  }
+  const limited = await request("entregador?rota=0");
+  assert.equal(limited.status, 429);
+  const body = await limited.json();
+  assert.equal(body.success, false);
+  assert.match(body.message, /requisições/i);
+  assert.doesNotMatch(JSON.stringify(body), new RegExp(token));
+  const other = await request("entregador?rota=0", "Delivery " + "b".repeat(64));
+  assert.equal(other.status, 200);
+});
+
+test("links inválidos variados continuam sujeitos ao limite por IP", async (t) => {
+  const { request } = await trackingServer(t);
+  for (let index = 0; index < 40; index++) {
+    const response = await request("entregador?rota=0", "Delivery inválido-" + index);
+    assert.equal(response.status, 401);
+    await response.json();
+  }
+  const response = await request("entregador?rota=0", "Delivery inválido-novo");
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).success, false);
+});

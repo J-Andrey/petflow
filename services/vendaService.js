@@ -346,6 +346,8 @@ const VendaService = {
             let shouldNotifyPayment = false;
 
             if (venda.estoque_baixado_em) {
+                if (venda.pagseguro_charge_id && dadosPagamento.pagseguroChargeId && venda.pagseguro_charge_id !== dadosPagamento.pagseguroChargeId)
+                    throw Object.assign(new Error("O pedido já foi confirmado por outra cobrança. Confira a conciliação."), { status: 409 });
                 await VendaModel.atualizarPagamentoPorReferencia(
                     referencia,
                     {
@@ -360,10 +362,13 @@ const VendaService = {
             }
 
             if (venda.status === "CANCELADA") {
-                // Pagamento tardio exige conciliação: não ressuscitar pedido sem estoque.
+                // Guardar a cobrança comprovada permite tratar o pagamento tardio
+                // na conciliação sem ressuscitar o pedido ou baixar estoque.
+                const saved = await VendaModel.atualizarPagamentoPorReferencia(referencia, { ...dadosPagamento, status: venda.status }, client);
+                await client.query("UPDATE vendas SET conciliacao_status='PENDENTE',conciliada_em=NULL,conciliada_por=NULL WHERE id=$1 AND empresa_id=$2", [venda.id, venda.empresa_id]);
                 await client.query("INSERT INTO notificacoes_admin(empresa_id,venda_id,titulo,mensagem) SELECT $1,$2,'Pagamento após cancelamento','Conferir no PagBank e tratar reembolso.' WHERE NOT EXISTS (SELECT 1 FROM notificacoes_admin WHERE venda_id=$2 AND titulo='Pagamento após cancelamento')",[venda.empresa_id,venda.id]);
                 await client.query("COMMIT");
-                return venda;
+                return saved || venda;
             }
             shouldNotifyPayment = true;
             await client.query("SELECT set_config('petflow.referencia_tipo','VENDA',TRUE),set_config('petflow.referencia_id',$1,TRUE)",[venda.id]);

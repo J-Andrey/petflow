@@ -1,6 +1,6 @@
 # PetFlow original — operação e validação
 
-Atualizado em 08/10/2026. A integração usa a API de produção do PagBank e o token existente. Uma consulta de checkout confirmou o acesso ao provedor, a referência do pedido e o link de pagamento. Não foi efetuado pagamento nem estorno real durante esta revisão.
+Atualizado em 09/10/2026. A integração usa a API de produção do PagBank e o token existente. O produto de teste `TESTE-CREDITO-6-20261008` foi publicado por R$ 6,00, com 10 unidades iniciais. Seu pedido foi criado com frete grátis (945 m), mas a reserva terminou sem pagamento: a consulta canônica ao PagBank em 09/10 confirmou checkout EXPIRED, sem cobrança. Não foi efetuado pagamento nem estorno real durante esta revisão.
 
 ## Diagnóstico e correções
 
@@ -13,6 +13,12 @@ O frete foi definido pelo proprietário e salvo no ambiente local e no Railway: 
 O cupom PETFLOW10 está ativo, com desconto de 10%. O servidor validava o cupom, mas a interface não confirmava sua aplicação e o total permanecia indisponível enquanto o frete falhava. O resumo deve distinguir desconto aplicado de frete ainda pendente.
 
 O GPS dependia do carregamento do Google Maps para iniciar o envio de posições. O compartilhamento foi separado do mapa, com envio inicial imediato, mensagens próprias para permissões/HTTPS e alternativa de navegação externa. O aparelho precisa conceder localização e manter a página aberta durante a rota.
+
+Na revisão de 09/10, a cota de rastreamento foi separada por link validado do entregador e por usuário autenticado. As cotas continuam limitadas a 40 requisições/minuto; tentativas inválidas seguem limitadas por IP. Isso impede que entregador e observadores na mesma rede esgotem uma cota compartilhada. Respostas de limite agora usam JSON em português. Abrir outro aplicativo ou bloquear a tela pode pausar o GPS; a página orienta o entregador a voltar ao PetFlow para retomar.
+
+O retorno do checkout identifica o pedido e consulta o resultado autenticado no PagBank. Durante ACTIVE, WAITING, IN_ANALYSIS ou AUTHORIZED, a página faz até seis consultas com intervalo de cinco segundos; confirmação, recusa, falha e saída da página interrompem o acompanhamento. Se for preciso entrar novamente, o login preserva o destino do pedido. A URL de retorno nunca confirma pagamento por si só.
+
+Webhooks agora solicitam checkout/pedido e cobrança canônicos antes de liberar estoque ou gerar financeiro. A referência, o vínculo da cobrança, a moeda e o total pago precisam corresponder ao pedido. Recusa ou cancelamento de uma tentativa de cartão não encerra um checkout ainda ativo nem substitui a cobrança já confirmada. Pagamento após cancelamento conserva os identificadores e abre pendência para atendimento, sem baixar estoque ou ressuscitar a venda.
 
 ## Limpeza solicitada do cadastro
 
@@ -77,6 +83,8 @@ Para `npm run test:integration`, criar banco vazio separado cujo nome comece com
 
 A integração PostgreSQL passou em 07/10, incluindo reserva concorrente, pagamento idempotente, checkout rejeitado seguido de recuperação, devoluções, conciliação, fila, privacidade, compras e isolamento entre empresas. Backup real foi restaurado em outro banco local e as migrações passaram antes da aplicação à produção.
 
+Em 09/10, `npm run release:check` passou com 197 arquivos JavaScript verificados, 127 testes, 500 links locais válidos e nenhuma vulnerabilidade reportada pela auditoria de dependências de produção. A integração PostgreSQL passou novamente em banco local vazio e isolado, incluindo pagamento tardio sem baixa de estoque e recuperação administrativa idempotente de uma cobrança já paga. A fixture de cancelamento em rota usa um único horário recente para evitar diferença de relógio entre PostgreSQL e Node; as verificações de GPS futuro, precisão e distância permanecem intactas.
+
 ```text
 npm run db:backup -- /destino-protegido/petflow.dump
 npm run db:restore -- /destino-protegido/petflow.dump --confirm-database NOME_EXATO
@@ -93,7 +101,7 @@ A restauração destina-se a banco vazio, usa transação única e não apaga ob
 
 ## Verificações ainda necessárias
 
-- Uma compra acompanhada em produção, incluindo confirmação por webhook e percurso em aparelho real. A consulta autenticada de checkout não comprova todo o ciclo de pagamento.
+- Uma compra acompanhada em produção, incluindo confirmação por webhook e percurso em aparelho real. O checkout de R$ 6,00 expirado comprova criação, frete e encerramento, mas não o ciclo de aprovação. Um novo checkout precisa ser criado pelo fluxo normal de compra quando o usuário estiver pronto para confirmar o cartão.
 - GPS em dois aparelhos, permissões, perda de conexão e retomada; navegador em segundo plano pode suspender a captura.
 - Domínio/envio real de e-mail e upload Cloudinary.
 - Razão social, CNPJ, endereço e contatos aprovados para os textos públicos, além da política de retenção da empresa.

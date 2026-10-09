@@ -116,16 +116,23 @@ async function reconcile(db, req, id, checkoutId, gateway) {
   const checkout = await gateway.consultarCheckout(checkoutId);
   if (checkout.raw?.reference_id !== id)
     fail("O checkout informado não pertence a este pedido.");
-  const data = paymentData(checkout);
-  return db.transaction(async (client) => {
+  const payment = await require("./paymentVerificationService").resolve(
+    { ...order, pagseguro_checkout_id: checkoutId },
+    { ...gateway, consultarCheckout: async () => checkout },
+  );
+  const data = { ...paymentData(checkout), ...payment.data };
+  await db.transaction(async (client) => {
     const current = (
       await client.query(
         "SELECT * FROM vendas WHERE id=$1 AND empresa_id=$2 FOR UPDATE",
         [id, req.user.empresaId],
       )
     ).rows[0];
-    if (current.estoque_baixado_em)
+    if (current.estoque_baixado_em) {
       data.pagseguroStatus = current.pagseguro_status;
+      if (current.pagseguro_charge_id && data.pagseguroChargeId && current.pagseguro_charge_id !== data.pagseguroChargeId)
+        fail("O pedido já foi confirmado por outra cobrança. Confira a conciliação.");
+    }
     if (
       current.pagseguro_checkout_id &&
       current.pagseguro_checkout_id !== checkoutId
@@ -150,7 +157,12 @@ async function reconcile(db, req, id, checkoutId, gateway) {
       null,
       { status: saved.status },
     );
-    return { id: saved.id, status: saved.status };
   });
+  const sales = require("./vendaService");
+  const confirmed = payment.status === "PAGAMENTO_APROVADO"
+    ? await sales.confirmarPagamento(req.user.empresaId, id, payment.data)
+    : await sales.atualizarStatusPagamento(req.user.empresaId, id, payment.status, payment.data);
+  await require("./paymentReconciliationService").receivePaymentEvent(db, { referenceId: id, chargeId: payment.chargeId }, gateway);
+  return { id: confirmed.id, status: confirmed.status, pagseguro_status: confirmed.pagseguro_status };
 }
 module.exports = { create, reconcile };

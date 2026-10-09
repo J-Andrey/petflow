@@ -74,10 +74,13 @@ module.exports = async function reconciliationScenarios({ db, company, actor, ot
     assert.equal((await returns.refund(db,request({}),uncertainReturn.id,lostGateway)).status,"CONCLUIDA");
     assert.equal(lostCalls,1);
     // Cancelamento em rota estorna, mas só recebimento físico explícito repõe mercadoria.
-    const routeOrder=(await db.query("INSERT INTO vendas(empresa_id,cliente_id,forma_pagamento,status,estoque_baixado_em,pagseguro_charge_id) VALUES($1,$2,'PIX','SAIU_PARA_ENTREGA',NOW(),$3) RETURNING id",[company,customer,"CHAR_ROUTE_"+marker])).rows[0];
+    // PostgreSQL e Date.now() podem diferir em 1 ms no mesmo aparelho.
+    // Use uma observação recente já passada, sem flexibilizar a rejeição de GPS futuro.
+    const routeObserved = new Date(Date.now() - 1000);
+    const routeOrder=(await db.query("INSERT INTO vendas(empresa_id,cliente_id,forma_pagamento,status,data_venda,estoque_baixado_em,pagseguro_charge_id) VALUES($1,$2,'PIX','SAIU_PARA_ENTREGA',$4,$4,$3) RETURNING id",[company,customer,"CHAR_ROUTE_"+marker,routeObserved])).rows[0];
     await db.query("INSERT INTO itens_venda(empresa_id,venda_id,produto_id,quantidade,preco_unitario,subtotal) VALUES($1,$2,$3,1,10,10)",[company,routeOrder.id,product]);
     await db.query("UPDATE vendas SET valor_total=10 WHERE id=$1",[routeOrder.id]);
-    await db.query("INSERT INTO entrega_rastreamento(venda_id,token_hash,expira_em,atualizado_em,observado_em,precisao_m,rota_solicitada_em,rota) VALUES($1,$2,NOW()+INTERVAL '1 hour',NOW(),NOW(),10,NOW(),$3)",[routeOrder.id,crypto.randomBytes(32).toString("hex"),{distanceMeters:3000,origem_gps_observado_em:new Date().toISOString()}]);
+    await db.query("INSERT INTO entrega_rastreamento(venda_id,token_hash,expira_em,atualizado_em,observado_em,precisao_m,rota_solicitada_em,rota) VALUES($1,$2,NOW()+INTERVAL '1 hour',$3,$3,10,$3,$4)",[routeOrder.id,crypto.randomBytes(32).toString("hex"),routeObserved,{distanceMeters:3000,origem_gps_observado_em:routeObserved.toISOString()}]);
     let routeRefund=0;
     const routeSnapshot=()=>({id:"CHAR_ROUTE_"+marker,reference_id:routeOrder.id,status:routeRefund?"CANCELED":"PAID",amount:{currency:"BRL",value:1000,summary:{total:1000,paid:1000,refunded:routeRefund}}});
     const routeGateway={async consultarCobranca(){return routeSnapshot();},async reembolsar(){routeRefund=1000;return routeSnapshot();}};
