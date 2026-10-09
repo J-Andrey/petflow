@@ -15,8 +15,16 @@ async function page({
   secure = true,
   mapFailure = false,
   brokenMap = false,
+  mapReady = false,
+  routeDrawError = false,
+  iconControls = false,
+  speech = false,
+  onScript,
   hash = "#" + token,
   savedState = null,
+  search = "",
+  onRequest,
+  initialData = null,
 } = {}) {
   const nodes = Object.fromEntries(
     [
@@ -35,15 +43,38 @@ async function page({
       "center",
       "route",
       "fullscreen",
+      "speed",
+      "distance",
+      "duration",
+      "arrival",
+      "nextInstruction",
+      "maneuverIcon",
+      "nextManeuverIcon",
     ].map((id) => [id, { hidden: false, textContent: "" }]),
   );
+  if (iconControls)
+    for (const id of ["navigation", "voice"]) {
+      const label = { textContent: "" };
+      nodes[id].innerHTML = "<svg></svg><span class='sr-only'></span>";
+      nodes[id].label = label;
+      nodes[id].querySelector = () => label;
+      nodes[id].attributes = {};
+      nodes[id].setAttribute = (name, value) => {
+        nodes[id].attributes[name] = value;
+      };
+    }
   const requests = [],
     timers = [],
+    timeouts = [],
+    scripts = [],
+    speechCalls = [],
     events = {},
-    geo = { watched: 0, refreshed: 0, cleared: [] };
+    geo = { watched: 0, refreshed: 0, cleared: [] },
+    mapCalls = { pans: [], bounds: [], lines: [], markers: [], events: {} };
   let now = 1800000000000,
     shared = null,
-    rejectPosition = false;
+    rejectPosition = false,
+    serverData = initialData;
   const document = {
     hidden: false,
     getElementById: (id) => nodes[id],
@@ -52,7 +83,7 @@ async function page({
     },
     createElement: () => ({}),
     head: {
-      append: (script) => (mapFailure ? script.onerror() : script.onload()),
+      append: (script) => { scripts.push(script); if (onScript) onScript(script, { events, document }); else if (mapFailure) script.onerror(); else script.onload(); },
     },
   };
   const history = {
@@ -66,27 +97,76 @@ async function page({
       return now;
     }
   }
+  const speechApi = { cancel() {}, speak: (utterance) => speechCalls.push(utterance) };
   const context = vm.createContext({
     URLSearchParams,
     Date: ClockDate,
-    window: { isSecureContext: secure },
+    AbortController,
+    SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
+    speechSynthesis: speechApi,
+    window: {
+      speechSynthesis: speech ? speechApi : undefined,
+      isSecureContext: secure,
+      addEventListener: (name, fn) => {
+        events[name] = fn;
+      },
+    },
     document,
     history,
-    location: { hash, search: "", pathname: "/entrega.html" },
+    location: { hash, search, pathname: "/entrega.html" },
     google: {
       maps: {
         Map: class {
-          panTo() {}
+          constructor(node, options) {
+            mapCalls.options = options;
+          }
+          panTo(point) {
+            mapCalls.pans.push(point);
+          }
+          fitBounds(bounds, padding) {
+            mapCalls.bounds.push({ bounds, padding });
+          }
+          addListener(name, fn) {
+            mapCalls.events[name] = fn;
+          }
         },
         Marker: class {
-          constructor() {
-            throw new Error("Falha do marcador");
+          constructor(options) {
+            if (brokenMap) throw new Error("Falha do marcador");
+            mapCalls.markers.push(options);
           }
+          setPosition() {}
+          setIcon(icon) {
+            mapCalls.icon = icon;
+          }
+        },
+        Polyline: class {
+          constructor(options) {
+            mapCalls.lines.push(options);
+          }
+          setPath() {}
+          setMap() {}
+        },
+        LatLngBounds: class {
+          extend() {}
+        },
+        SymbolPath: { FORWARD_CLOSED_ARROW: "arrow", CIRCLE: "circle" },
+        geometry: {
+          encoding: {
+            decodePath() {
+              if (routeDrawError) throw new Error("Rota inválida");
+              return [
+                { lat: -23.5, lng: -46.6 },
+                { lat: -23.6, lng: -46.7 },
+              ];
+            },
+          },
         },
       },
     },
     sessionStorage: { getItem: () => null },
     navigator: {
+      onLine: true,
       geolocation: {
         watchPosition(success, error, options) {
           geo.watched++;
@@ -110,15 +190,26 @@ async function page({
       timers.push({ fn, ms });
       return timers.length;
     },
-    setTimeout: () => 1,
-    clearTimeout() {},
+    clearInterval: (id) => {
+      if (timers[id - 1]) timers[id - 1].cleared = true;
+    },
+    setTimeout: (fn, ms) => {
+      timeouts.push({ fn, ms });
+      return timeouts.length;
+    },
+    clearTimeout(id) {
+      if (timeouts[id - 1]) timeouts[id - 1].cleared = true;
+    },
     fetch: async (url, options) => {
       requests.push({ url, options });
+      const handled = onRequest?.(url, options);
+      if (handled !== undefined) return handled;
       if (url.endsWith("/config"))
         return {
           ok: true,
           json: async () => ({
-            key: mapFailure || brokenMap ? "test-browser-key" : null,
+            key:
+              mapFailure || brokenMap || mapReady ? "test-browser-key" : null,
           }),
         };
       if (options.method === "POST") {
@@ -135,9 +226,13 @@ async function page({
         ok: true,
         json: async () => ({
           data: {
-            ...(shared || {}),
-            antiga: !shared,
-            atualizado_em: shared ? new Date(now).toISOString() : null,
+            ...(serverData || shared || {}),
+            antiga: serverData ? serverData.antiga : !shared,
+            atualizado_em: serverData
+              ? serverData.atualizado_em
+              : shared
+                ? new Date(shared.observado_em).toISOString()
+                : null,
             navegacao_url:
               "https://www.google.com/maps/dir/?api=1&destination=Rua+A",
           },
@@ -156,7 +251,15 @@ async function page({
   return {
     nodes,
     requests,
+    mapCalls,
+    scripts,
+    speechCalls,
     timers,
+    timeouts,
+    navigator: context.navigator,
+    serverData: (value) => {
+      serverData = value;
+    },
     geo,
     document,
     history,
@@ -510,7 +613,9 @@ async function trackingServer(t) {
   app.use(express.json());
   app.use("/api/entregas", router);
   app.use((error, req, res, next) =>
-    res.status(error.status || 500).json({ success: false, message: error.message }),
+    res
+      .status(error.status || 500)
+      .json({ success: false, message: error.message }),
   );
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
@@ -521,7 +626,10 @@ async function trackingServer(t) {
     request: (endpoint, authorization = "Delivery " + token, method = "GET") =>
       fetch(base + endpoint, {
         method,
-        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        headers: {
+          Authorization: authorization,
+          "Content-Type": "application/json",
+        },
         ...(method === "POST" ? { body: "{}" } : {}),
       }),
   };
@@ -558,18 +666,617 @@ test("limite de um link privado não bloqueia outro link e retorna orientação 
   assert.equal(body.success, false);
   assert.match(body.message, /requisições/i);
   assert.doesNotMatch(JSON.stringify(body), new RegExp(token));
-  const other = await request("entregador?rota=0", "Delivery " + "b".repeat(64));
+  const other = await request(
+    "entregador?rota=0",
+    "Delivery " + "b".repeat(64),
+  );
   assert.equal(other.status, 200);
 });
 
 test("links inválidos variados continuam sujeitos ao limite por IP", async (t) => {
   const { request } = await trackingServer(t);
   for (let index = 0; index < 40; index++) {
-    const response = await request("entregador?rota=0", "Delivery inválido-" + index);
+    const response = await request(
+      "entregador?rota=0",
+      "Delivery inválido-" + index,
+    );
     assert.equal(response.status, 401);
     await response.json();
   }
   const response = await request("entregador?rota=0", "Delivery inválido-novo");
   assert.equal(response.status, 429);
   assert.equal((await response.json()).success, false);
+});
+
+test("pagehide pausa GPS e pageshow retoma sem aceitar callbacks da sessão anterior", async () => {
+  const driver = await page();
+  driver.nodes.start.onclick();
+  const oldWatch = driver.geo.success;
+  driver.tick(15000);
+  driver.timers.find((timer) => timer.fn.name === "refreshPosition").fn();
+  const oldCurrent = driver.geo.current;
+  assert.equal(typeof driver.events.pagehide, "function");
+  driver.events.pagehide({ persisted: true });
+  assert.deepEqual(driver.geo.cleared, [17]);
+  assert.ok(driver.timers.every((timer) => timer.cleared));
+  driver.events.pageshow({ persisted: true });
+  assert.equal(driver.geo.watched, 2);
+  const obsolete = {
+    coords: { latitude: -23.5, longitude: -46.6, accuracy: 10 },
+    timestamp: driver.now(),
+  };
+  oldWatch(obsolete);
+  oldCurrent(obsolete);
+  await settle();
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    0,
+  );
+  driver.fix();
+  await settle();
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    1,
+  );
+  driver.tick(15000);
+  driver.timers
+    .filter((timer) => !timer.cleared && timer.fn.name === "refreshPosition")[0]
+    .fn();
+  assert.equal(driver.geo.refreshed, 2);
+});
+
+test("callback GPS antigo e erro de permissão pendente não interferem na retomada", async () => {
+  const driver = await page();
+  driver.nodes.start.onclick();
+  driver.tick(15000);
+  driver.timers.find((timer) => timer.fn.name === "refreshPosition").fn();
+  const oldWatch = driver.geo.success,
+    oldError = driver.geo.currentError;
+  driver.document.hidden = true;
+  driver.events.visibilitychange();
+  driver.document.hidden = false;
+  driver.events.visibilitychange();
+  oldError({ code: 1 });
+  oldWatch({
+    coords: { latitude: -23.5, longitude: -46.6, accuracy: 10 },
+    timestamp: driver.now(),
+  });
+  await settle();
+  assert.equal(driver.nodes.start.hidden, true);
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    0,
+  );
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+});
+
+test("POST de posição com link revogado encerra captura e oferece novo link", async () => {
+  const driver = await page({
+    onRequest: (url, options) =>
+      options.method === "POST"
+        ? {
+            ok: false,
+            status: 401,
+            json: async () => ({ message: "Link expirado ou revogado." }),
+          }
+        : undefined,
+  });
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.deepEqual(driver.geo.cleared, [17]);
+  assert.equal(driver.nodes.start.disabled, true);
+  assert.match(driver.nodes.status.textContent, /expirado ou revogado/);
+  const total = driver.requests.length;
+  driver.tick(5000);
+  for (const timer of driver.timers) await timer.fn();
+  assert.equal(driver.requests.length, total);
+});
+
+test("consulta pendente não substitui o encerramento confirmado", async () => {
+  let resolvePoll,
+    hold = false;
+  const driver = await page({
+    onRequest: (url, options) =>
+      hold && options.method === "GET" && !url.endsWith("config")
+        ? new Promise((resolve) => {
+            resolvePoll = resolve;
+          })
+        : undefined,
+  });
+  driver.nodes.start.onclick();
+  hold = true;
+  const pending = driver.timers.find((timer) => timer.fn.name === "poll").fn();
+  await settle();
+  await driver.nodes.stop.onclick();
+  resolvePoll({
+    ok: true,
+    json: async () => ({
+      data: {
+        antiga: false,
+        atualizado_em: new Date(driver.now()).toISOString(),
+      },
+    }),
+  });
+  await pending;
+  assert.match(driver.nodes.status.textContent, /Compartilhamento encerrado/);
+});
+
+test("cliente e admin mostram posição antiga sem previsão de chegada durante desconexão", async () => {
+  for (const search of ["?pedido=pedido", "?admin=1&pedido=pedido"]) {
+    const viewer = await page({
+      search,
+      initialData: {
+        latitude: -23.5,
+        longitude: -46.6,
+        antiga: false,
+        atualizado_em: new Date(1800000000000).toISOString(),
+        rota: { distanceMeters: 3000, duration: "600s" },
+      },
+    });
+    assert.match(viewer.nodes.metrics.textContent, /Chegada/);
+    viewer.tick(35000);
+    viewer.navigator.onLine = false;
+    assert.equal(typeof viewer.events.offline, "function");
+    viewer.events.offline();
+    assert.match(viewer.nodes.status.textContent, /Sem conexão/);
+    assert.match(viewer.nodes.status.textContent, /antiga/);
+    assert.doesNotMatch(viewer.nodes.metrics.textContent, /Chegada/);
+    const count = viewer.requests.length;
+    await viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+    assert.equal(viewer.requests.length, count);
+    viewer.serverData({
+      latitude: -23.6,
+      longitude: -46.7,
+      antiga: false,
+      atualizado_em: new Date(viewer.now()).toISOString(),
+    });
+    viewer.navigator.onLine = true;
+    viewer.events.online();
+    await settle();
+    assert.match(viewer.nodes.status.textContent, /a caminho/);
+  }
+});
+
+test("entregador reconecta com observação nova sem reenviar captura anterior", async () => {
+  const driver = await page();
+  driver.nodes.start.onclick();
+  driver.navigator.onLine = false;
+  assert.equal(typeof driver.events.offline, "function");
+  driver.events.offline();
+  driver.fix();
+  await settle();
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    0,
+  );
+  driver.navigator.onLine = true;
+  driver.events.online();
+  await settle();
+  assert.equal(driver.geo.watched, 2);
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    0,
+  );
+  driver.tick(5000);
+  driver.fix();
+  await settle();
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    1,
+  );
+});
+
+test("consulta sem resposta expira e a próxima consulta pode retomar", async () => {
+  let hang = false;
+  const driver = await page({
+    onRequest: (url, options) =>
+      hang && options.method === "GET" && !url.endsWith("config")
+        ? new Promise((resolve, reject) => {
+            options.signal?.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  Object.assign(new Error("Abortado"), { name: "AbortError" }),
+                ),
+              { once: true },
+            );
+          })
+        : undefined,
+  });
+  hang = true;
+  const pending = driver.timers.find((timer) => timer.fn.name === "poll").fn();
+  await settle();
+  const timeout = driver.timeouts.find(
+    (timer) => !timer.cleared && timer.ms === 15000,
+  );
+  assert.ok(timeout, "requisição precisa de timeout");
+  timeout.fn();
+  await pending;
+  assert.match(driver.nodes.status.textContent, /demorou/);
+  hang = false;
+  const count = driver.requests.length;
+  await driver.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(driver.requests.length, count + 1);
+});
+
+test("captura com horário ausente ou coordenadas inválidas não é enviada", async () => {
+  const driver = await page();
+  driver.nodes.start.onclick();
+  driver.geo.success({
+    coords: { latitude: -23.5, longitude: -46.6, accuracy: 10 },
+  });
+  await settle();
+  driver.geo.success({
+    coords: { latitude: 200, longitude: -46.6, accuracy: 10 },
+    timestamp: driver.now(),
+  });
+  await settle();
+  assert.equal(
+    driver.requests.filter((request) => request.options.method === "POST")
+      .length,
+    0,
+  );
+  assert.match(driver.nodes.gpsStatus.textContent, /impreciso|inválido/);
+});
+
+test("painel de navegação usa apenas métricas e manobras recebidas e não desloca ETA a cada poll", async () => {
+  const stamp = new Date(1800000000000).toISOString();
+  const data = {
+    latitude: -23.5,
+    longitude: -46.6,
+    velocidade: 10,
+    antiga: false,
+    atualizado_em: stamp,
+    rota: {
+      distanceMeters: 900,
+      duration: "600s",
+      origem_gps_observado_em: stamp,
+      legs: [
+        {
+          steps: [
+            {
+              navigationInstruction: {
+                instructions: "Vire à esquerda na Rua A",
+                maneuver: "TURN_LEFT",
+              },
+            },
+            {
+              navigationInstruction: {
+                instructions: "Siga em frente na Rua B",
+                maneuver: "STRAIGHT",
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const viewer = await page({ search: "?pedido=pedido", initialData: data });
+  assert.equal(viewer.nodes.distance.textContent, "900 m");
+  assert.equal(viewer.nodes.duration.textContent, "10 min");
+  assert.equal(viewer.nodes.speed.textContent, "36");
+  assert.equal(
+    viewer.nodes.instruction.textContent,
+    "Vire à esquerda na Rua A",
+  );
+  assert.equal(
+    viewer.nodes.nextInstruction.textContent,
+    "Siga em frente na Rua B",
+  );
+  assert.match(viewer.nodes.maneuverIcon.innerHTML, /scale\(-1 1\)/);
+  assert.doesNotMatch(viewer.nodes.nextManeuverIcon.innerHTML, /scale\(-1 1\)/);
+  const eta = viewer.nodes.arrival.textContent;
+  viewer.tick(20000);
+  await viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(viewer.nodes.arrival.textContent, eta);
+  viewer.serverData({
+    ...data,
+    rota: {
+      distanceMeters: 1200,
+      duration: "120s",
+      origem_gps_observado_em: stamp,
+    },
+  });
+  await viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(viewer.nodes.distance.textContent, "1,2 km");
+  assert.equal(viewer.nodes.nextInstruction.textContent, "—");
+  viewer.tick(15000);
+  await viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(viewer.nodes.duration.textContent, "—");
+  assert.equal(viewer.nodes.arrival.textContent, "—");
+  assert.equal(viewer.nodes.speed.textContent, "—");
+});
+
+test("falha ao revogar pausa GPS e permite retomar ou tentar encerrar novamente", async () => {
+  let deny = true;
+  const driver = await page({
+    initialData: {
+      antiga: false,
+      atualizado_em: new Date(1800000000000).toISOString(),
+    },
+    onRequest: (url, options) =>
+      deny && options.method === "DELETE"
+        ? {
+            ok: false,
+            status: 503,
+            json: async () => ({ message: "Servidor indisponível" }),
+          }
+        : undefined,
+  });
+  driver.nodes.start.onclick();
+  await driver.nodes.stop.onclick();
+  assert.equal(driver.nodes.start.hidden, false);
+  assert.equal(driver.nodes.stop.disabled, false);
+  assert.match(driver.nodes.status.textContent, /GPS pausado/);
+  assert.match(driver.nodes.gpsStatus.textContent, /Não foi possível revogar/);
+  driver.nodes.start.onclick();
+  assert.equal(driver.geo.watched, 2);
+  deny = false;
+  await driver.nodes.stop.onclick();
+  assert.match(driver.nodes.status.textContent, /Compartilhamento encerrado/);
+});
+
+test("posição recusada por ser anterior à salva não informa compartilhamento confirmado", async () => {
+  const driver = await page({
+    onRequest: (url, options) =>
+      options.method === "POST"
+        ? { ok: true, json: async () => ({ data: { atualizada: false } }) }
+        : undefined,
+  });
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.doesNotMatch(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+  assert.match(driver.nodes.gpsStatus.textContent, /leitura mais recente/);
+  assert.equal(driver.geo.refreshed, 1);
+});
+
+test("poll da sessão anterior não substitui uma posição nova ao retornar", async () => {
+  let resolveOld,
+    hold = false;
+  const fresh = {
+    antiga: false,
+    atualizado_em: new Date(1800000000000).toISOString(),
+    latitude: -23.6,
+    longitude: -46.7,
+  };
+  const viewer = await page({
+    search: "?pedido=pedido",
+    initialData: fresh,
+    onRequest: (url, options) =>
+      hold && options.method === "GET" && !url.endsWith("config")
+        ? new Promise((resolve) => {
+            resolveOld = resolve;
+          })
+        : undefined,
+  });
+  hold = true;
+  const pending = viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+  await settle();
+  viewer.events.pagehide({ persisted: true });
+  hold = false;
+  viewer.events.pageshow({ persisted: true });
+  await settle();
+  resolveOld({
+    ok: true,
+    json: async () => ({ data: { antiga: true, atualizado_em: null } }),
+  });
+  await pending;
+  assert.match(viewer.nodes.status.textContent, /a caminho/);
+  assert.match(
+    viewer.nodes.updated.textContent,
+    /Última posição compartilhada/,
+  );
+});
+
+test("timeout do envio libera tentativa posterior com nova posição", async () => {
+  let hang = true;
+  const driver = await page({
+    onRequest: (url, options) =>
+      hang && options.method === "POST"
+        ? new Promise((resolve, reject) => {
+            options.signal.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  Object.assign(new Error("Abortado"), { name: "AbortError" }),
+                ),
+              { once: true },
+            );
+          })
+        : undefined,
+  });
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  driver.timeouts.find((timer) => !timer.cleared && timer.ms === 15000).fn();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /demorou/);
+  hang = false;
+  driver.tick(5000);
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+});
+
+test("rota sem duração não cria previsão fictícia de chegada", async () => {
+  const viewer = await page({
+    search: "?pedido=pedido",
+    initialData: {
+      latitude: -23.5,
+      longitude: -46.6,
+      antiga: false,
+      atualizado_em: new Date(1800000000000).toISOString(),
+      rota: { distanceMeters: 1000 },
+    },
+  });
+  assert.equal(viewer.nodes.arrival.textContent, "—");
+  assert.equal(viewer.nodes.duration.textContent, "—");
+  assert.doesNotMatch(viewer.nodes.metrics.textContent, /Chegada/);
+});
+
+test("mapa segue GPS real; rota completa suspende acompanhamento até centralizar", async () => {
+  const driver = await page({
+    mapReady: true,
+    initialData: {
+      latitude: -23.5,
+      longitude: -46.6,
+      antiga: false,
+      atualizado_em: new Date(1800000000000).toISOString(),
+      rota: {
+        distanceMeters: 1200,
+        duration: "120s",
+        polyline: { encodedPolyline: "rota-teste" },
+      },
+    },
+  });
+  assert.equal(driver.mapCalls.options.styles[0].stylers[0].color, "#18334e");
+  assert.ok(
+    driver.mapCalls.lines.some(
+      (line) => line.strokeColor === "#17dcf3" && line.strokeWeight === 8,
+    ),
+  );
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  driver.nodes.route.onclick();
+  const pans = driver.mapCalls.pans.length;
+  driver.tick(5000);
+  driver.fix();
+  await settle();
+  assert.equal(driver.mapCalls.pans.length, pans);
+  assert.ok(driver.mapCalls.bounds.at(-1).padding.top > 0);
+  driver.nodes.center.onclick();
+  assert.ok(driver.mapCalls.pans.length > pans);
+  const centered = driver.mapCalls.pans.length;
+  driver.tick(5000);
+  driver.fix();
+  await settle();
+  assert.ok(driver.mapCalls.pans.length > centered);
+  assert.equal(driver.mapCalls.icon.fillColor, "#3e86ff");
+});
+
+test("falha ao desenhar a rota preserva envio do GPS e oferece navegação externa", async () => {
+  const driver = await page({
+    mapReady: true,
+    routeDrawError: true,
+    initialData: {
+      latitude: -23.5,
+      longitude: -46.6,
+      antiga: false,
+      atualizado_em: new Date(1800000000000).toISOString(),
+      rota: {
+        distanceMeters: 1200,
+        duration: "120s",
+        polyline: { encodedPolyline: "rota-teste" },
+      },
+    },
+  });
+  assert.match(
+    driver.nodes.mapStatus.textContent,
+    /não conseguiu exibir a rota/,
+  );
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+  assert.equal(driver.nodes.navigation.hidden, false);
+});
+
+test("controles de voz e navegação preservam SVG e descrevem posição antiga", async () => {
+  const viewer = await page({
+    iconControls: true,
+    search: "?pedido=pedido",
+    initialData: {
+      latitude: -23.5,
+      longitude: -46.6,
+      antiga: false,
+      atualizado_em: new Date(1800000000000).toISOString(),
+    },
+  });
+  assert.match(viewer.nodes.navigation.innerHTML, /<svg>/);
+  assert.match(viewer.nodes.navigation.label.textContent, /Ver posição/);
+  viewer.tick(35000);
+  await viewer.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.match(viewer.nodes.navigation.label.textContent, /última posição/);
+  assert.match(
+    viewer.nodes.navigation.attributes["aria-label"],
+    /última posição/,
+  );
+  const driver = await page({ iconControls: true });
+  driver.nodes.voice.onclick();
+  assert.equal(driver.nodes.voice.attributes["aria-pressed"], "true");
+  assert.equal(driver.nodes.voice.label.textContent, "Desativar voz");
+  assert.match(driver.nodes.voice.innerHTML, /<svg>/);
+});
+
+test("marcador só indica direção quando o aparelho fornece heading real", async () => {
+  const driver = await page({ mapReady: true });
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.equal(driver.mapCalls.icon.path, "circle");
+  driver.tick(5000);
+  driver.geo.success({
+    coords: { latitude: -23.5, longitude: -46.6, accuracy: 10, heading: 90 },
+    timestamp: driver.now(),
+  });
+  await settle();
+  assert.equal(driver.mapCalls.icon.path, "arrow");
+  assert.equal(driver.mapCalls.icon.rotation, 90);
+});
+
+
+test("ativar voz anuncia a manobra atual uma vez e só repete após mudança", async () => {
+  const data = { latitude: -23.5, longitude: -46.6, antiga: false, atualizado_em: new Date(1800000000000).toISOString(), rota: { distanceMeters: 1000, duration: "600s", legs: [{ steps: [{ navigationInstruction: { instructions: "Vire à direita na Rua A", maneuver: "TURN_RIGHT" } }] }] } };
+  const driver = await page({ speech: true, iconControls: true, initialData: data });
+  assert.equal(driver.speechCalls.length, 0);
+  driver.nodes.voice.onclick();
+  assert.equal(driver.speechCalls.length, 1);
+  assert.equal(driver.speechCalls[0].text, "Vire à direita na Rua A");
+  assert.equal(driver.speechCalls[0].lang, "pt-BR");
+  assert.equal(driver.nodes.voice.attributes["aria-pressed"], "true");
+  assert.match(driver.nodes.voice.innerHTML, /<svg>/);
+  await driver.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(driver.speechCalls.length, 1);
+  driver.serverData({ ...data, rota: { ...data.rota, legs: [{ steps: [{ navigationInstruction: { instructions: "Siga em frente na Rua B", maneuver: "STRAIGHT" } }] }] } });
+  await driver.timers.find((timer) => timer.fn.name === "poll").fn();
+  assert.equal(driver.speechCalls.length, 2);
+  assert.equal(driver.speechCalls[1].text, "Siga em frente na Rua B");
+});
+
+test("ativação de voz não anuncia posição antiga ou sem conexão", async () => {
+  const data = { latitude: -23.5, longitude: -46.6, antiga: false, atualizado_em: new Date(1800000000000).toISOString(), rota: { distanceMeters: 1000, duration: "600s", legs: [{ steps: [{ navigationInstruction: { instructions: "Vire à direita na Rua A" } }] }] } };
+  for (const offline of [false, true]) {
+    const driver = await page({ speech: true, initialData: data });
+    if (offline) driver.navigator.onLine = false; else driver.tick(35000);
+    driver.nodes.voice.onclick();
+    assert.equal(driver.speechCalls.length, 0);
+  }
+});
+
+test("retomar página durante carregamento do Maps não adiciona segundo SDK", async () => {
+  let first = true;
+  const driver = await page({ mapReady: true, onScript: (script, { events, document }) => {
+    if (first) {
+      first = false;
+      document.hidden = true;
+      events.visibilitychange();
+      document.hidden = false;
+      events.visibilitychange();
+      setImmediate(() => script.onload());
+    } else script.onload();
+  } });
+  await settle();
+  assert.equal(driver.scripts.length, 1);
+  assert.ok(driver.mapCalls.options);
 });

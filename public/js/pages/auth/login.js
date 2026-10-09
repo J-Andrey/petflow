@@ -26,13 +26,13 @@ async function handleLogin(event) {
         return;
     }
 
-    if (!validateRequired(password, "Informe a senha.")) {
+    if (!password.value) {
+        alert("Informe a senha.");
+        password.focus();
         return;
     }
 
-    if (!validatePassword(password)) {
-        return;
-    }
+    // O login aceita as senhas já existentes; regras de criação são aplicadas no servidor.
 
     try {
         const response = await AuthService.login({

@@ -38,7 +38,7 @@
                 <div class="customer-card" id="cartCustomer"></div>
                 <form class="cart-form" id="deliveryForm">
                     <h3>Entrega</h3>
-                    <label>CEP <input class="form-control" name="cep" inputmode="numeric" maxlength="9" required autocomplete="postal-code"></label>
+                    <label>CEP <input class="form-control" name="cep" inputmode="numeric" maxlength="9" pattern="[0-9]{5}-?[0-9]{3}" title="Digite os oito dígitos do CEP" required autocomplete="postal-code"></label>
                     <label>Rua <input class="form-control" name="endereco" maxlength="160" required autocomplete="address-line1"></label>
                     <label>Número <input class="form-control" name="numero" maxlength="20" required></label>
                     <label>Complemento <input class="form-control" name="complemento" maxlength="150"></label>
@@ -53,7 +53,7 @@
                 <form class="cart-form" id="cartForm">
                     <label>
                         Observações
-                        <textarea class="form-control" name="observacoes" placeholder="Ex: entregar à tarde"></textarea>
+                        <textarea class="form-control" name="observacoes" maxlength="1000" placeholder="Ex: entregar à tarde"></textarea>
                     </label>
                     <div class="cart-total">
                         <span id="cartTotalLabel">Subtotal sem frete</span>
@@ -61,6 +61,7 @@
                     </div>
                     <button class="btn btn-primary" type="submit">Finalizar pedido</button>
                     <p class="cart-status" id="cartStatus" role="status"></p>
+                    <button class="btn" type="button" id="recoverOrder" hidden>Retomar pedido anterior</button>
                 </form>
                 <a class="btn" href="/#products" id="chooseMore">Escolher mais produtos</a>
             </aside>
@@ -68,6 +69,6 @@
     </main>
 
     <script src="/js/layout/public-header.js?v=20260811-1"></script>
-    <script src="/js/pages/cart/cart.js?v=20261008-1"></script>
+    <script src="/js/pages/cart/cart.js?v=20261009-2"></script>
 </body>
 </html>

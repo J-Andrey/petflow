@@ -2,41 +2,61 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#142a42" />
     <meta name="robots" content="noindex,nofollow" />
     <meta name="referrer" content="no-referrer" />
-    <title>PetFlow — Entrega</title>
-    <link rel="stylesheet" href="/css/pages/tracking.css" />
+    <title>PetFlow — Navegação da entrega</title>
+    <link rel="stylesheet" href="/css/pages/tracking.css?v=20261009-2" />
   </head>
-  <body>
+  <body class="navigation-app">
     <div id="map" aria-label="Mapa da entrega"></div>
-    <main class="tracking-panel">
-      <h1>Entrega PetFlow</h1>
-      <p id="status" role="status">Carregando...</p>
-      <p id="gpsStatus" role="status">
-        Toque em Iniciar viagem para compartilhar o GPS.
-      </p>
-      <p id="mapStatus" role="status"></p>
-      <strong id="instruction"></strong>
-      <p id="metrics"></p>
-      <p id="updated"></p>
-      <nav>
-        <button id="start">Iniciar viagem</button
-        ><button id="stop" hidden>Encerrar compartilhamento</button
-        ><button id="center">Centralizar</button
-        ><button id="route">Rota completa</button
-        ><a id="navigation" hidden target="_blank" rel="noopener noreferrer"
-          >Abrir navegação</a
-        ><button id="voice">Ativar voz</button
-        ><button id="fullscreen">Tela cheia</button>
-      </nav>
-      <p id="privacy">
-        Sua localização será compartilhada somente enquanto esta página estiver
-        ativa e visível. Abrir o Google Maps, trocar de aplicativo ou bloquear
-        a tela pode pausar o GPS. Volte a esta página para retomar. Use os
-        controles com o veículo parado.
-      </p>
+    <div class="navigation-heading">
+      <header class="turn-card" aria-label="Orientação de navegação">
+        <div class="current-turn">
+          <span id="maneuverIcon" class="turn-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 42V8M9 23 24 8l15 15" /></svg></span>
+          <div class="turn-copy">
+            <p class="navigation-brand">Entrega PetFlow</p>
+            <h1 id="instruction">Preparando a rota</h1>
+          </div>
+        </div>
+        <div class="next-turn">
+          <span class="next-label">Depois</span>
+          <span id="nextManeuverIcon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M8 27V16a6 6 0 0 1 6-6h13M20 3l7 7-7 7" /></svg></span>
+          <span id="nextInstruction">Aguardando a rota</span>
+        </div>
+      </header>
+      <div class="navigation-feedback">
+        <p id="status" role="status">Conectando à entrega...</p>
+        <p id="gpsStatus" role="status">Toque em Iniciar viagem para compartilhar o GPS.</p>
+        <p id="mapStatus" role="status"></p>
+      </div>
+    </div>
+    <nav class="map-controls" aria-label="Controles do mapa">
+      <button id="center" type="button" aria-label="Centralizar na localização" title="Centralizar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3" /></svg><span class="sr-only">Centralizar</span></button>
+      <button id="route" type="button" aria-label="Ver rota completa" title="Rota completa"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="3" /><circle cx="18" cy="6" r="3" /><path d="M6 15V8a3 3 0 0 1 3-3h3m6 4v7a3 3 0 0 1-3 3h-3" /></svg><span class="sr-only">Rota completa</span></button>
+      <button id="voice" type="button" aria-label="Ativar voz" aria-pressed="false" title="Orientação por voz"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" /></svg><span class="sr-only">Ativar voz</span></button>
+      <a id="navigation" hidden target="_blank" rel="noopener noreferrer" aria-label="Abrir navegação no Google Maps" title="Abrir no Google Maps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7m0-7L10 14M11 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" /></svg><span class="sr-only">Abrir navegação</span></a>
+      <button id="fullscreen" type="button" aria-label="Alternar tela cheia" title="Tela cheia"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6" /></svg><span class="sr-only">Tela cheia</span></button>
+    </nav>
+    <div class="speed-indicator" aria-label="Velocidade do entregador"><strong id="speed">—</strong><span>km/h</span></div>
+    <main class="journey-card" aria-label="Resumo da viagem">
+      <div class="journey-handle" aria-hidden="true"></div>
+      <div class="journey-summary">
+        <button id="stop" type="button" class="stop-trip" hidden aria-label="Encerrar compartilhamento" title="Encerrar compartilhamento"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 5 14 14M19 5 5 19" /></svg><span class="sr-only">Encerrar compartilhamento</span></button>
+        <div class="journey-estimate">
+          <strong id="duration">—</strong>
+          <p><span id="distance">—</span><span aria-hidden="true"> · </span><span id="arrival">—</span></p>
+        </div>
+        <button id="start" type="button" class="start-trip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 3 16 9-16 9V3Z" /></svg><span>Iniciar viagem</span></button>
+      </div>
+      <p id="updated" class="last-update">Aguardando posição do entregador.</p>
+      <p id="metrics" class="sr-only"></p>
+      <details id="privacy" class="gps-information">
+        <summary>Como funciona o GPS</summary>
+        <p>Sua localização será compartilhada somente enquanto esta página estiver ativa e visível. Abrir o Google Maps, trocar de aplicativo ou bloquear a tela pode pausar o GPS. Volte a esta página para retomar. Use os controles com o veículo parado.</p>
+      </details>
     </main>
-    <script src="/js/pages/tracking.js"></script>
+    <script src="/js/pages/tracking.js?v=20261009-2"></script>
   </body>
 </html>

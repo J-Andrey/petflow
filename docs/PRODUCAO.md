@@ -28,6 +28,10 @@ Backup anterior à remoção: `.backups/petflow-before-customer-cleanup-2026-10-
 
 ## Recursos implementados
 
+O checkout público agora recebe uma chave de intenção por tentativa. O servidor normaliza itens, endereço, cupom e forma de pagamento, grava a intenção com o pedido na mesma transação e recupera o mesmo pedido em um reenvio após perda de resposta ou expiração da cotação. Uma chave reutilizada com dados diferentes é rejeitada; a interface preserva a sacola até receber uma resposta definitiva. Cupons que zerariam o pedido são rejeitados antes do commit.
+
+A tela de entrega foi redesenhada para navegação móvel: mapa escuro, manobra atual e próxima, rota ciano, seta baseada no heading real, velocidade, ETA, controles de centralização/rota/voz/tela cheia e botão para abrir a navegação externa. O GPS continua enviando a posição quando o Maps falha, pausa ao sair da página e retoma ao voltar. O painel administrativo gera o link privado em POST /api/entregas/admin/:id/link somente para pedido SAIU_PARA_ENTREGA; o link vale 12 horas, revoga o anterior e é aberto em /entrega.html#TOKEN. Como não há pedido elegível em produção neste momento, nenhum token privado foi criado ou exposto.
+
 | Área | Comportamento |
 | --- | --- |
 | Sessões | Separação cliente/equipe, empresa e versão de sessão; revogação e recuperação de uso único. |
@@ -58,6 +62,7 @@ Preservar os SQL já aplicados. Nunca editar um arquivo para contornar o checksu
 | 120 | Conciliação e devoluções. |
 | 121 | Vínculos de tutor, categoria, fornecedor e estoque restritos à empresa. |
 | 122 | Nova tentativa após rejeição comprovada do checkout. |
+| 123 | Intenção idempotente de pedido, com vínculo empresa/cliente/venda e índice composto. |
 
 A migração 113 invalida links antigos de confirmação/recuperação. A 121 usa constraints NOT VALID para preservar possíveis inconsistências legadas; novas gravações são verificadas, mas os registros antigos exigem revisão antes da validação integral.
 
@@ -85,7 +90,7 @@ Para `npm run test:integration`, criar banco vazio separado cujo nome comece com
 
 A integração PostgreSQL passou em 07/10, incluindo reserva concorrente, pagamento idempotente, checkout rejeitado seguido de recuperação, devoluções, conciliação, fila, privacidade, compras e isolamento entre empresas. Backup real foi restaurado em outro banco local e as migrações passaram antes da aplicação à produção.
 
-Em 09/10, `npm run release:check` passou com 197 arquivos JavaScript verificados, 127 testes, 500 links locais válidos e nenhuma vulnerabilidade reportada pela auditoria de dependências de produção. A integração PostgreSQL passou novamente em banco local vazio e isolado, incluindo pagamento tardio sem baixa de estoque e recuperação administrativa idempotente de uma cobrança já paga. A fixture de cancelamento em rota usa um único horário recente para evitar diferença de relógio entre PostgreSQL e Node; as verificações de GPS futuro, precisão e distância permanecem intactas.
+Em 09/10, `npm run release:check` passou com 201 arquivos JavaScript verificados, 168 testes, 500 links locais válidos e nenhuma vulnerabilidade reportada pela auditoria de dependências de produção. A integração PostgreSQL isolada também passou após restaurar o backup pré-123/124 e aplicar a migração 123; os contadores restaurados permaneceram em 27 vendas, 1 cliente e 2 e-mails. A integração PostgreSQL passou novamente em banco local vazio e isolado, incluindo pagamento tardio sem baixa de estoque e recuperação administrativa idempotente de uma cobrança já paga. A fixture de cancelamento em rota usa um único horário recente para evitar diferença de relógio entre PostgreSQL e Node; as verificações de GPS futuro, precisão e distância permanecem intactas.
 
 ```text
 npm run db:backup -- /destino-protegido/petflow.dump
@@ -105,7 +110,7 @@ A restauração destina-se a banco vazio, usa transação única e não apaga ob
 
 - Uma compra acompanhada em produção, incluindo confirmação por webhook e percurso em aparelho real. O checkout de R$ 6,00 expirado comprova criação, frete e encerramento, mas não o ciclo de aprovação. Um novo checkout precisa ser criado pelo fluxo normal de compra quando o usuário estiver pronto para confirmar o cartão.
 - GPS em dois aparelhos, permissões, perda de conexão e retomada; navegador em segundo plano pode suspender a captura.
-- Domínio/envio real de e-mail e upload Cloudinary.
+- Domínio/envio real de e-mail e upload Cloudinary. As variáveis de produção estão presentes e iguais às locais; o ping da API administrativa do Cloudinary ainda responde 401, então o upload real não foi declarado validado. A chave Resend é restrita a envio e responde 401 ao endpoint administrativo de domínios, sem invalidar as mensagens já aceitas para a fila.
 - Razão social, CNPJ, endereço e contatos aprovados para os textos públicos, além da política de retenção da empresa.
 - Operação das exceções de e-mail, backup periódico e acompanhamento de deploys.
 

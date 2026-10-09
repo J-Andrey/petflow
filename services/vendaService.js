@@ -8,6 +8,8 @@ const db = require("../database/connection");
 const rules = require("./orderRules");
 const reservations = require("./reservationService");
 const coupons = require("./couponService");
+const intents = require("./orderIntentService");
+const { normalizeAddress } = require("./deliveryService");
 const delivery = require("./deliveryService").createDeliveryService({secret:require("../config/env").JWT_SECRET});
 
 const VendaModel = require("../models/vendaModel");
@@ -100,7 +102,11 @@ const VendaService = {
             const customerResult=await client.query("SELECT * FROM clientes WHERE id=$1 AND empresa_id=$2 AND ativo=TRUE FOR UPDATE",[venda.cliente_id,empresaId]);
             const customer=customerResult.rows[0];
             if(!customer) throw Object.assign(new Error("Cliente indisponível."),{status:400});
-            const address=venda.endereco_entrega || customer;
+            const address=normalizeAddress(venda.endereco_entrega || customer);
+            const intent=intents.prepare(venda,itens,address,formaPagamento);
+            // O lock do cliente serializa duas requisições da mesma intenção.
+            const recovered=await intents.recover(client,empresaId,customer.id,intent);
+            if(recovered){await client.query("COMMIT");return recovered;}
             const quote=delivery.verify(venda.cotacao_frete,empresaId,address);
 
             const novaVenda = await VendaModel.criar(
@@ -255,10 +261,9 @@ const VendaService = {
             }
 
             const coupon=await coupons.validate(client,{empresaId,clienteId:customer.id,code:venda.cupom_codigo,subtotal:Math.round(valorTotalBruto*100),lock:true});
-            await client.query("UPDATE vendas SET desconto=$1,cupom_codigo=$2 WHERE id=$3 AND empresa_id=$4",
-                [coupon.cents/100,coupon.code,novaVenda.id,empresaId]);
             const valorFinal =
                 valorTotalBruto -
+                coupon.cents / 100 -
                 desconto +
                 acrescimo;
 
@@ -272,19 +277,25 @@ const VendaService = {
             ==========================================
              ATUALIZA OS TOTAIS
 
-             O model recebe o total bruto.
-             Ele calcula:
-             valor_final = valor_total - desconto
-                           + acréscimo
+             Primeiro o total bruto é gravado. Depois o desconto é
+             aplicado no mesmo pedido, mantendo a restrição de cálculo
+             consistente inclusive para cupons de 100%.
             ==========================================
             */
 
-            const vendaAtualizada =
-                await VendaModel.atualizarValorTotal(
-                    novaVenda.id,
-                    valorTotalBruto,
-                    client
-                );
+            await VendaModel.atualizarValorTotal(
+                novaVenda.id,
+                valorTotalBruto,
+                client
+            );
+            const vendaAtualizada = (await client.query(
+                "UPDATE vendas SET desconto=$1,cupom_codigo=$2 WHERE id=$3 AND empresa_id=$4 RETURNING *",
+                [coupon.cents / 100, coupon.code, novaVenda.id, empresaId]
+            )).rows[0];
+
+            if (Number(vendaAtualizada.valor_final) <= 0)
+                throw Object.assign(new Error("O total do pedido precisa ser maior que zero para pagar no PagBank. Ajuste o cupom ou os produtos."),{status:400});
+            await intents.save(client,empresaId,customer.id,intent,novaVenda.id);
 
             if (customer.email) {
                 const template = orderReceivedTemplate({

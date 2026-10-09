@@ -6,6 +6,8 @@
 
 const db = require("../database/connection");
 const VendaService = require("../services/vendaService");
+const { UUID } = require("../services/sessionService");
+const { normalizeAddress } = require("../services/deliveryService");
 
 /* ==================================================
    CONFIGURAÇÕES
@@ -91,6 +93,8 @@ async function criarPedido(request, response, next) {
 
         }
 
+        if (typeof body.chave_pedido !== "string" || !UUID.test(body.chave_pedido))
+            return response.status(400).json({success:false,message:"Atualize a página da sacola antes de finalizar o pedido."});
         const itensNormalizados = normalizarItens(itens);
 
         /* ==========================================
@@ -131,8 +135,9 @@ async function criarPedido(request, response, next) {
         const empresaId = request.customer.empresaId;
         const cliente = await getCliente(request.customer.id, empresaId);
 
+        const enderecoEntrega = normalizeAddress(body.endereco_entrega || cliente);
         const camposFaltando =
-            verificarEndereco(cliente);
+            verificarEndereco(enderecoEntrega);
 
         if (camposFaltando.length > 0) {
 
@@ -155,6 +160,7 @@ async function criarPedido(request, response, next) {
             empresaId,
             {
                 cliente_id: cliente.id,
+                chave_pedido: body.chave_pedido,
 
                 usuario_id: null,
 
@@ -165,12 +171,12 @@ async function criarPedido(request, response, next) {
                 desconto: 0,
                 cupom_codigo: body.cupom_codigo,
                 cotacao_frete: body.cotacao_frete,
-                endereco_entrega: body.endereco_entrega,
+                endereco_entrega: enderecoEntrega,
 
                 acrescimo: 0,
 
                 observacoes: montarObservacoes(
-                    cliente,
+                    enderecoEntrega,
                     observacoes
                 ),
 
@@ -181,9 +187,10 @@ async function criarPedido(request, response, next) {
 
         // A confirmação por e-mail foi persistida na mesma transação do pedido.
 
-        return response.status(201).json({
+        return response.status(pedido.reused ? 200 : 201).json({
             success: true,
-            message: "Pedido recebido com sucesso.",
+            message: pedido.reused ? "Pedido anterior recuperado." : "Pedido recebido com sucesso.",
+            reused: Boolean(pedido.reused),
 
             data: {
                 ...pedido.venda,
@@ -191,7 +198,7 @@ async function criarPedido(request, response, next) {
             },
 
             payment: {
-                status: "AGUARDANDO_PAGAMENTO",
+                status: pedido.venda.status,
                 endpoint: "/api/public/pagamentos",
                 vendaId: pedido.venda.id
             }
