@@ -5,9 +5,8 @@ const db = require("../database/connection");
 const { EMAIL_FROM, RESEND_API_KEY } = require("../config/env");
 const { sendEmail } = require("./emailService");
 
-const MAX_ATTEMPTS = 8;
-// Resend guarda chaves por 24h. A margem evita repetir uma entrega incerta fora da janela.
-const RETRY_WINDOW_SECONDS = 23 * 60 * 60;
+const { MAX_ATTEMPTS, RETRY_WINDOW_SECONDS } = require("./emailQueuePolicy");
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LEASE_SECONDS = 120;
 const POLL_MS = 30_000;
 let workerTimer;
@@ -16,6 +15,8 @@ let running = false;
 async function enqueueEmail(options, client = db) {
     const { to, subject, html, text, idempotencyKey } = options;
     const expiresAt = options.expiresAt ? new Date(options.expiresAt) : null;
+    const empresaId = options.empresaId || null;
+    if (empresaId && !UUID.test(empresaId)) throw Object.assign(new Error("Empresa do e-mail inválida."), { code: "EMAIL_INVALID" });
     if (!to || !subject || (!html && !text)) {
         throw Object.assign(new Error("Dados de e-mail incompletos."), { code: "EMAIL_INVALID" });
     }
@@ -27,11 +28,13 @@ async function enqueueEmail(options, client = db) {
         .update(String(idempotencyKey || crypto.randomUUID())).digest("hex");
     const data = { from: EMAIL_FROM, to, subject, ...(html ? { html } : {}), ...(text ? { text } : {}) };
     const { rows } = await client.query(`
-        INSERT INTO fila_emails(chave_idempotencia,dados,expira_em)
-        VALUES($1,$2::jsonb,LEAST(COALESCE($3::timestamptz,NOW()+INTERVAL '7 days'),NOW()+INTERVAL '7 days'))
+        INSERT INTO fila_emails(chave_idempotencia,dados,expira_em,empresa_id)
+        VALUES($1,$2::jsonb,LEAST(COALESCE($3::timestamptz,NOW()+INTERVAL '7 days'),NOW()+INTERVAL '7 days'),$4)
         ON CONFLICT(chave_idempotencia) DO UPDATE
             SET chave_idempotencia=EXCLUDED.chave_idempotencia
-        RETURNING id,status`, [key, JSON.stringify(data), expiresAt]);
+            WHERE fila_emails.empresa_id IS NOT DISTINCT FROM EXCLUDED.empresa_id
+        RETURNING id,status`, [key, JSON.stringify(data), expiresAt, empresaId]);
+    if (!rows[0]) throw Object.assign(new Error("Evento de e-mail já registrado em outro escopo."), { code: "EMAIL_SCOPE_CONFLICT" });
     return rows[0];
 }
 

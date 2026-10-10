@@ -7,9 +7,19 @@ const users=require("../services/adminUserService");
 const audit=require("../services/auditService");
 const {UUID}=require("../services/sessionService");
 const {enqueueEmail}=require("../services/emailQueueService");
+const emailQueueAdmin=require("../services/emailQueueAdminService");
 const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
 const page=req=>Math.max(1,Math.min(10000,Number.parseInt(req.query.page,10)||1));
 router.use(auth);
+router.get("/emails",role("ADMIN","GERENTE"),wrap(async(req,res)=>{
+    res.json({success:true,...await emailQueueAdmin.list(db,req)});
+}));
+router.post("/emails/:id/reagendar",role("ADMIN"),wrap(async(req,res)=>{
+    res.json({success:true,data:await emailQueueAdmin.act(db,req,req.params.id,"reagendar")});
+}));
+router.post("/emails/:id/encerrar",role("ADMIN"),wrap(async(req,res)=>{
+    res.json({success:true,data:await emailQueueAdmin.act(db,req,req.params.id,"encerrar")});
+}));
 router.get("/checkouts",role("ADMIN","GERENTE"),wrap(async(req,res)=>{
     const result=await db.query(`SELECT t.venda_id AS id,t.status,t.criada_em,c.nome AS cliente,COUNT(*) OVER() AS total
         FROM checkout_tentativas t JOIN vendas v ON v.id=t.venda_id AND v.empresa_id=t.empresa_id
@@ -120,7 +130,7 @@ for(const [path,table,statuses] of [
             await audit.record(client,req,"RESPONDER",table,item.id,found.rows[0],item);
             if(item.cliente_id) await client.query("INSERT INTO notificacoes(cliente_id,titulo,mensagem,tipo) VALUES($1,$2,$3,'SISTEMA')",
                 [item.cliente_id,"Resposta ao protocolo "+item.protocolo,resposta.trim()]);
-            if(item.email_referencia) await enqueueEmail({to:item.email_referencia,subject:"PetFlow: protocolo "+item.protocolo,
+            if(item.email_referencia) await enqueueEmail({empresaId:req.user.empresaId,to:item.email_referencia,subject:"PetFlow: protocolo "+item.protocolo,
                 text:resposta.trim(),idempotencyKey:path+"-resposta-"+item.id+"-"+status},client);
             return item;
         });

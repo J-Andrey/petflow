@@ -103,6 +103,7 @@ async function subscribe(request, response, next) {
 
         if(existing.rows[0]?.status !== "ATIVO") {
             await enqueueEmail({
+                empresaId,
                 to: inscrito.email,
                 ...template,
                 idempotencyKey: "newsletter-confirmada-"+inscrito.id+"-"+crypto.randomUUID()

@@ -10,6 +10,8 @@
   try { profile = JSON.parse(sessionStorage.getItem("user") || "null")?.perfil; } catch {}
   if (!profile) { try { profile = JSON.parse(atob(token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/"))).perfil; } catch {} }
   const isAdmin = profile === "ADMIN";
+  const emailLabels = { PENDENTE: "Na fila", PROCESSANDO: "Em processamento", ENVIADA: "Aceito pelo provedor", FALHA: "Falha", INCERTA: "Sem confirmação" };
+  document.querySelector('[data-view="emails"]').hidden = !isAdmin && profile !== "GERENTE";
   const money = value => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
   const labels = { SEM_PENDENCIA: "Sem pendência", PENDENTE: "Pendente", EM_ANALISE: "Em análise", CONCILIADO: "Conferido", APROVADA: "Aguardando produtos", RECEBIDA: "Recebida", REEMBOLSO_SOLICITADO: "Aguardando reembolso", CONCLUIDA: "Concluída", SOLICITADO: "Solicitado", PROCESSANDO: "Aguardando confirmação", INCERTO: "Requer conferência", CONCLUIDO: "Confirmado", ENTREGUE: "Entregue", FINALIZADA: "Finalizado", CANCELADA: "Cancelado", PAGAMENTO_APROVADO: "Pagamento aprovado", EM_SEPARACAO: "Em separação", SAIU_PARA_ENTREGA: "Em entrega", AWAITING_EVIDENCE: "Aguardando comprovantes", REVIEW_WITH_PAGBANK: "Em análise no PagBank", SUBMITTED_ISSUER: "Em análise pelo emissor", APPROVED: "Comprovantes aceitos", DENIED: "Comprovantes recusados", EXPIRED: "Prazo de defesa encerrado", CLOSED: "Débito aceito", LOST: "Disputa perdida", WON: "Disputa ganha" };
   const label = value => labels[value] || value || "—";
@@ -35,6 +37,7 @@
     cupons: "Cupons",
     usuarios: "Usuários",
     auditoria: "Auditoria",
+    emails: "Fila de e-mails",
     atendimento: "Atendimento",
     lgpd: "Privacidade",
     notificacoes: "Notificações",
@@ -56,6 +59,7 @@
     cupons: ["codigo", "tipo", "valor", "ativo"],
     usuarios: ["nome", "email", "perfil", "ativo"],
     auditoria: ["created_at", "usuario", "acao", "entidade", "descricao"],
+    emails: ["id", "status", "tentativas", "criada_em", "tratada_em"],
     atendimento: ["protocolo", "tipo", "status", "prazo_em"],
     lgpd: ["protocolo", "tipo", "status", "prazo_em"],
     notificacoes: ["titulo", "mensagem", "enviada_em", "lida_em"],
@@ -133,6 +137,10 @@
   async function load() {
     $("status").textContent = "Carregando...";
     $("heading").textContent = titles[view];
+    $("emailFilterLabel").hidden = view !== "emails";
+    $("emailSummary").hidden = view !== "emails";
+    $("emailSummary").textContent = "";
+    $("search").placeholder = view === "emails" ? "Referência do envio" : "";
     $("newUser").hidden =
       !["usuarios", "cupons"].includes(view) && !clinical[view] && !(view === "conciliacao" && isAdmin);
     $("newUser").textContent =
@@ -156,33 +164,29 @@
                 "?page=" +
                 page +
                 "&q=" +
-                encodeURIComponent($("search").value),
+                encodeURIComponent($("search").value) + (view === "emails" ? "&status=" + encodeURIComponent($("emailFilter").value) : ""),
             );
       records = result.data;
+      if (view === "emails") $("emailSummary").textContent = Object.entries(emailLabels).map(([key, text]) => text + ": " + (result.resumo?.[key] || 0)).join(" · ") + ". Análises pendentes: " + (result.pendencias || 0) + ". A fila reúne as notificações de pedidos, lembretes e atendimentos desta empresa; cadastro e recuperação de senha são enviados diretamente.";
       $("head").replaceChildren();
       $("rows").replaceChildren();
       const head = document.createElement("tr");
-      columns[view].forEach((key) =>
-        head.append(
-          cell(
-            {
-              pet_id: "Pet",
-              consulta_id: "Consulta",
-              vacina_id: "Vacina",
-              data_consulta: "Data",
-              historico_vacinas: "Vacinações",
-              id: "Pedido", cliente: "Cliente", valor_final: "Total do pedido", estornado_centavos: "Total reembolsado", conciliacao_status: "Conferência", valor_centavos: "Novo reembolso aprovado", aprovada_em: "Aprovada em",
-            }[key] || key.replaceAll("_", " "),
-            "th",
-          ),
-        ),
-      );
+      const headingLabels = view === "emails"
+        ? { id: "Referência", status: "Estado", tentativas: "Tentativas", criada_em: "Criado em", tratada_em: "Análise encerrada em" }
+        : { pet_id: "Pet", consulta_id: "Consulta", vacina_id: "Vacina", data_consulta: "Data", historico_vacinas: "Vacinações",
+            id: "Pedido", cliente: "Cliente", valor_final: "Total do pedido", estornado_centavos: "Total reembolsado",
+            conciliacao_status: "Conferência", valor_centavos: "Novo reembolso aprovado", aprovada_em: "Aprovada em" };
+      columns[view].forEach(key => head.append(cell(headingLabels[key] || key.replaceAll("_", " "), "th")));
       head.append(cell("Ações", "th"));
       $("head").append(head);
       records.forEach((record) => {
         const row = document.createElement("tr");
         columns[view].forEach((key) => {
           let value = record[key];
+          if (view === "emails") {
+            if (key === "status") value = emailLabels[value] || value;
+            if (key === "id") value = "#" + String(value).slice(0, 8).toUpperCase();
+          }
           if (["conciliacao", "devolucoes"].includes(view)) {
             if (["estornado_centavos", "valor_centavos"].includes(key)) value = money(Number(value) / 100);
             else if (key === "valor_final") value = money(value);
@@ -252,6 +256,7 @@
     return input;
   }
   async function open(record) {
+    if (view === "emails") return openEmail(record);
     if (view === "conciliacao") return openReconciliation(record);
     if (view === "devolucoes") return openReturn(record);
     if (view === "checkouts") {
@@ -666,6 +671,30 @@
       }
     };
     $("editor").scrollIntoView({ behavior: "smooth" });
+  }
+  function openEmail(record) {
+    startEditor("Envio #" + record.id.slice(0, 8).toUpperCase());
+    paragraph("Referência: " + record.id);
+    paragraph("Situação: " + emailLabels[record.status] + ". Tentativas: " + record.tentativas + ".");
+    if (record.orientacao) paragraph(record.orientacao);
+    if (record.status === "ENVIADA") paragraph("O provedor aceitou o envio. A chegada à caixa de entrada deve ser conferida com o destinatário ou no painel do provedor.");
+    if (record.status === "INCERTA") paragraph("O provedor pode ter enviado esta mensagem. Confira os registros do provedor antes de concluir o atendimento. Este painel não repete envios sem confirmação.");
+    if (["PENDENTE", "PROCESSANDO"].includes(record.status)) paragraph("O processamento é automático. Atualize a listagem para acompanhar.");
+    if (record.tratada_em) paragraph("Análise encerrada em " + new Date(record.tratada_em).toLocaleString("pt-BR") + ", sem novo envio.");
+    else if (record.status === "FALHA" && !record.pode_reagendar) paragraph("O prazo ou limite de repetição encerrou, ou o conteúdo já foi removido. Resolva o atendimento pelo canal adequado e encerre a análise.");
+    if (!isAdmin) { paragraph("Apenas administradores podem reagendar ou encerrar uma análise."); return; }
+    if (record.pode_reagendar) actionButton("Reagendar envio após corrigir a causa", async () => {
+      if (!confirm("Você conferiu e corrigiu a causa da recusa? O mesmo envio será colocado na fila, preservando o prazo e o limite de tentativas.")) return;
+      await api("emails/" + record.id + "/reagendar", "POST", {});
+      await load();
+      $("status").textContent = "Envio reagendado. Acompanhe a confirmação na fila.";
+    });
+    if (record.pode_encerrar) actionButton("Encerrar análise sem reenviar", async () => {
+      if (!confirm("Encerrar a análise após conferir o atendimento? O conteúdo armazenado será removido. Esta ação não confirma entrega e não envia outra mensagem.")) return;
+      await api("emails/" + record.id + "/encerrar", "POST", {});
+      await load();
+      $("status").textContent = "Análise encerrada sem reenviar a mensagem.";
+    });
   }
   function startEditor(title) {
     $("editor").hidden = false;

@@ -41,6 +41,7 @@ async function createAppointmentReminders() {
         `
             SELECT
                 a.id,
+                a.empresa_id,
                 a.cliente_id,
                 COALESCE(a.servico, s.nome, 'Atendimento') AS servico,
                 COALESCE(a.data, a.data_agendamento) AS data,
@@ -72,7 +73,7 @@ async function createAppointmentReminders() {
             mensagem,
             tipo,
             chaveEvento: "agenda-"+item.id+"-"+formatDate(item.data),
-            emailOptions: item.email ? { to: item.email, expiresAt: reminderExpiry(item.data), ...appointmentReminderTemplate({
+            emailOptions: item.email ? { empresaId: item.empresa_id, to: item.email, expiresAt: reminderExpiry(item.data), ...appointmentReminderTemplate({
                 name: item.cliente, petName: item.pet, serviceName: item.servico,
                 date: item.data, time: item.hora
             }) } : null
@@ -83,7 +84,7 @@ async function createAppointmentReminders() {
 async function createBirthdayMessages() {
     const { rows } = await db.query(
         `
-            SELECT id, nome, email
+            SELECT id, empresa_id, nome, email
             FROM clientes
             WHERE ativo = TRUE
               AND data_nascimento IS NOT NULL
@@ -102,12 +103,12 @@ async function createBirthdayMessages() {
             mensagem,
             tipo: "SISTEMA",
             chaveEvento: "aniversario-"+cliente.id+"-"+new Date().getFullYear(),
-            emailOptions: cliente.email ? { to: cliente.email, expiresAt: new Date(Date.now()+DAY_MS), ...birthdayGreetingTemplate({name:cliente.nome}) } : null
+            emailOptions: cliente.email ? { empresaId: cliente.empresa_id, to: cliente.email, expiresAt: new Date(Date.now()+DAY_MS), ...birthdayGreetingTemplate({name:cliente.nome}) } : null
         });
     }
 }
 async function createVaccineReminders() {
-    const {rows}=await db.query(`SELECT h.id,h.proxima_dose,c.id AS cliente_id,c.nome,c.email,p.nome AS pet,v.nome AS vacina
+    const {rows}=await db.query(`SELECT h.id,h.empresa_id,h.proxima_dose,c.id AS cliente_id,c.nome,c.email,p.nome AS pet,v.nome AS vacina
         FROM historico_vacinas h JOIN pets p ON p.id=h.pet_id AND p.empresa_id=h.empresa_id
         JOIN clientes c ON c.id=p.cliente_id AND c.empresa_id=h.empresa_id
         JOIN vacinas v ON v.id=h.vacina_id AND v.empresa_id=h.empresa_id
@@ -115,7 +116,7 @@ async function createVaccineReminders() {
     for(const item of rows){
         const message="A próxima dose de "+item.vacina+" de "+item.pet+" está prevista para "+formatDate(item.proxima_dose)+". Agende com a equipe.";
         await createNotificationOncePerDay({clienteId:item.cliente_id,titulo:"Lembrete de vacinação",mensagem:message,tipo:"VACINA",chaveEvento:"vacina-"+item.id+"-"+formatDate(item.proxima_dose),
-            emailOptions:item.email?{to:item.email,expiresAt:reminderExpiry(item.proxima_dose),subject:"PetFlow: lembrete de vacinação",text:message}:null});
+            emailOptions:item.email?{empresaId:item.empresa_id,to:item.email,expiresAt:reminderExpiry(item.proxima_dose),subject:"PetFlow: lembrete de vacinação",text:message}:null});
     }
 }
 

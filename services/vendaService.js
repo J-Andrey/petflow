@@ -302,7 +302,7 @@ const VendaService = {
                     name: customer.nome, orderId: novaVenda.id,
                     total: vendaAtualizada.valor_final ?? vendaAtualizada.valor_total, items: itensEmail
                 });
-                await enqueueEmail({ to: customer.email, ...template, idempotencyKey: "pedido-recebido-" + novaVenda.id }, client);
+                await enqueueEmail({ empresaId, to: customer.email, ...template, idempotencyKey: "pedido-recebido-" + novaVenda.id }, client);
             }
             await client.query("COMMIT");
 
@@ -605,6 +605,7 @@ async function enviarEmailStatusPedido(venda, status, client) {
     });
 
     return enqueueEmail({
+        empresaId: venda.empresa_id,
         to: cliente.email,
         subject: template.subject,
         html: template.html,

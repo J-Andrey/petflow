@@ -55,7 +55,7 @@ async function queueCustomerEmail(client, order, status, returnId) {
     const template = returnId ? status === "SEM_REEMBOLSO" ? { subject: "PetFlow: devolução recebida", text: "Os produtos da devolução no pedido #" + order.id + " foram recebidos. Seu atendimento foi concluído sem novo reembolso, conforme análise administrativa." } : { subject: "PetFlow: devolução reembolsada", text: "O reembolso da sua devolução no pedido #" + order.id + " foi confirmado pelo PagBank. O prazo de crédito depende do meio de pagamento." } : email.orderCanceledTemplate({ name: rows[0].nome, orderId: order.id });
     if(returnId) await client.query("INSERT INTO notificacoes(cliente_id,venda_id,titulo,mensagem,tipo,chave_evento) VALUES($1,$2,$3,$4,'SISTEMA',$5) ON CONFLICT(cliente_id,chave_evento) WHERE chave_evento IS NOT NULL DO NOTHING",[order.cliente_id,order.id,template.subject,template.text,"return-refund-"+returnId]);
     if (!rows[0].email) return;
-    await email.enqueueEmail({ to: rows[0].email, ...template, idempotencyKey: returnId ? "return-refund-" + returnId : "cancel-" + order.id }, client);
+    await email.enqueueEmail({ empresaId: order.empresa_id, to: rows[0].email, ...template, idempotencyKey: returnId ? "return-refund-" + returnId : "cancel-" + order.id }, client);
 }
 
 // Recebe uma consulta autenticada ao provedor, nunca valores de formulário/webhook.

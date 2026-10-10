@@ -307,6 +307,7 @@ async function processRequest(db, req, id) {
     );
     await enqueueEmail(
       {
+        empresaId: req.user.empresaId,
         to: customer.email,
         subject: "PetFlow: protocolo " + item.protocolo,
         text: answer,
