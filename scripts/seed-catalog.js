@@ -1,11 +1,10 @@
 ﻿"use strict";
 
-const { Pool } = require("pg");
-const { buildDbOptions } = require("../config/dbOptions");
-
-require("dotenv").config();
-
-const pool = new Pool(buildDbOptions());
+function ensureDemoEnvironment(env = process.env) {
+    if (env.SEED_DEMO_CATALOG !== "true" || String(env.NODE_ENV).toLowerCase() === "production") {
+        throw Object.assign(new Error("O catálogo é demonstrativo. Use SEED_DEMO_CATALOG=true somente em ambiente de desenvolvimento isolado; produção não é permitida."), { code: "SEED_DEMO_CONFIG" });
+    }
+}
 
 const categories = [
     ["Rações", "Alimentos secos e úmidos para cães, gatos e pets especiais."],
@@ -35,7 +34,8 @@ const products = [
     ["Farmácia Pet", "Suplemento Ômega Pet 60 cápsulas", "Suplemento para pele e pelagem.", "OMEGA-PET-60", "VitaPet", 54.9, 29.6, 12, "/images/products/vitapet-care-kit.jpg"]
 ];
 
-async function run() {
+async function seedCatalog(pool, env = process.env) {
+    ensureDemoEnvironment(env);
     const client = await pool.connect();
 
     try {
@@ -53,17 +53,17 @@ async function run() {
                     INSERT INTO categorias (empresa_id, nome, descricao, status, ativo)
                     VALUES ($1, $2, $3, TRUE, TRUE)
                     ON CONFLICT (nome)
-                    DO UPDATE SET
-                        descricao = EXCLUDED.descricao,
-                        status = TRUE,
-                        ativo = TRUE,
-                        updated_at = NOW()
+                    DO NOTHING
                     RETURNING id;
                 `,
                 [empresaId, nome, descricao]
             );
 
-            categoryIds.set(nome, rows[0].id);
+            const category = rows[0] || (await client.query(
+                "SELECT id FROM categorias WHERE empresa_id = $1 AND nome = $2", [empresaId, nome]
+            )).rows[0];
+            if (!category) throw Object.assign(new Error("Categoria já vinculada a outra empresa."), { code: "SEED_SCOPE" });
+            categoryIds.set(nome, category.id);
         }
 
         await client.query(
@@ -91,12 +91,7 @@ async function run() {
                     TRUE
                 )
                 ON CONFLICT (cnpj)
-                DO UPDATE SET
-                    nome = EXCLUDED.nome,
-                    razao_social = EXCLUDED.razao_social,
-                    telefone = EXCLUDED.telefone,
-                    email = EXCLUDED.email,
-                    updated_at = NOW();
+                DO NOTHING;
             `,
             [empresaId]
         );
@@ -107,13 +102,7 @@ async function run() {
                     INSERT INTO servicos (empresa_id, nome, descricao, preco, duracao, duracao_minutos, ativo)
                     VALUES ($1, $2, $3, $4, $5, $5, TRUE)
                     ON CONFLICT (nome)
-                    DO UPDATE SET
-                        descricao = EXCLUDED.descricao,
-                        preco = EXCLUDED.preco,
-                        duracao = EXCLUDED.duracao,
-                        duracao_minutos = EXCLUDED.duracao_minutos,
-                        ativo = TRUE,
-                        updated_at = NOW();
+                    DO NOTHING;
                 `,
                 [empresaId, nome, descricao, preco, duracao]
             );
@@ -140,24 +129,14 @@ async function run() {
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $7, $8, $9, TRUE, TRUE)
                     ON CONFLICT (sku)
-                    DO UPDATE SET
-                        categoria_id = EXCLUDED.categoria_id,
-                        nome = EXCLUDED.nome,
-                        descricao = EXCLUDED.descricao,
-                        marca = EXCLUDED.marca,
-                        preco = EXCLUDED.preco,
-                        custo = EXCLUDED.custo,
-                        preco_venda = EXCLUDED.preco_venda,
-                        preco_custo = EXCLUDED.preco_custo,
-                        foto = EXCLUDED.foto,
-                        status = TRUE,
-                        ativo = TRUE,
-                        updated_at = NOW()
+                    DO NOTHING
                     RETURNING id;
                 `,
                 [empresaId, categoriaId, nome, descricao, sku, marca, preco, custo, foto]
             );
 
+            // Não repõe estoque nem altera preços de produtos que já existiam.
+            if (!rows.length) continue;
             await client.query(
                 `
                     INSERT INTO estoque (
@@ -170,30 +149,40 @@ async function run() {
                     )
                     VALUES ($1, $2, $3, 5, 60, 'Prateleira principal')
                     ON CONFLICT (empresa_id, produto_id)
-                    DO UPDATE SET
-                        quantidade = EXCLUDED.quantidade,
-                        estoque_minimo = EXCLUDED.estoque_minimo,
-                        estoque_maximo = EXCLUDED.estoque_maximo,
-                        localizacao = EXCLUDED.localizacao,
-                        updated_at = NOW();
+                    DO NOTHING;
                 `,
                 [empresaId, rows[0].id, quantidade]
             );
         }
 
         await client.query("COMMIT");
-        console.log("Catalogo inicial criado com sucesso.");
     } catch (error) {
         await client.query("ROLLBACK");
         throw error;
     } finally {
         client.release();
+    }
+}
+
+async function run() {
+    require("dotenv").config({ quiet: true, path: process.env.PETFLOW_ENV_FILE || ".env" });
+    ensureDemoEnvironment();
+    const { Pool } = require("pg");
+    const { buildDbOptions } = require("../config/dbOptions");
+    const pool = new Pool(buildDbOptions());
+    try {
+        await seedCatalog(pool);
+        console.log("Catálogo demonstrativo criado. Registros existentes foram preservados.");
+    } finally {
         await pool.end();
     }
 }
 
-run().catch((error) => {
-    console.error("Erro ao criar catalogo inicial.");
-    console.error(error);
-    process.exit(1);
-});
+if (require.main === module) {
+    run().catch((error) => {
+        console.error(error.code === "SEED_DEMO_CONFIG" ? error.message : "Não foi possível criar o catálogo demonstrativo. Verifique as migrações e a conexão; detalhes foram omitidos para proteger credenciais.");
+        process.exitCode = 1;
+    });
+}
+
+module.exports = { ensureDemoEnvironment, seedCatalog, run };

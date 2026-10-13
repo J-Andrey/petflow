@@ -19,6 +19,7 @@ async function page({
   routeDrawError = false,
   iconControls = false,
   speech = false,
+  storageBlocked = false,
   onScript,
   hash = "#" + token,
   savedState = null,
@@ -81,9 +82,9 @@ async function page({
     addEventListener: (name, fn) => {
       events[name] = fn;
     },
-    createElement: () => ({}),
+    createElement: () => ({ remove() { this.removed = true; } }),
     head: {
-      append: (script) => { scripts.push(script); if (onScript) onScript(script, { events, document }); else if (mapFailure) script.onerror(); else script.onload(); },
+      append: (script) => { scripts.push(script); if (onScript) onScript(script, { events, document, timeouts }); else if (mapFailure) script.onerror(); else script.onload(); },
     },
   };
   const history = {
@@ -164,7 +165,10 @@ async function page({
         },
       },
     },
-    sessionStorage: { getItem: () => null },
+    sessionStorage: { getItem: () => {
+      if (storageBlocked) throw new Error("Armazenamento indisponível");
+      return null;
+    } },
     navigator: {
       onLine: true,
       geolocation: {
@@ -1279,4 +1283,75 @@ test("retomar página durante carregamento do Maps não adiciona segundo SDK", a
   await settle();
   assert.equal(driver.scripts.length, 1);
   assert.ok(driver.mapCalls.options);
+});
+
+test("erro de download do Maps permite uma nova tentativa ao reconectar", async () => {
+  let attempts = 0;
+  const driver = await page({
+    mapReady: true,
+    onScript: (script) => {
+      if (++attempts === 1) script.onerror();
+      else script.onload();
+    },
+  });
+  assert.match(driver.nodes.mapStatus.textContent, /Não foi possível carregar/);
+  assert.equal(driver.scripts[0].removed, true);
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+  driver.events.online();
+  await settle();
+  assert.equal(driver.scripts.length, 2);
+  assert.ok(driver.mapCalls.options);
+  assert.equal(driver.nodes.mapStatus.textContent, "");
+});
+
+test("timeout do Maps preserva download tardio e retomada reutiliza o mesmo SDK", async () => {
+  const driver = await page({
+    mapReady: true,
+    onScript: (script, { timeouts }) => {
+      setImmediate(() => {
+        timeouts.find((timer) => !timer.cleared && timer.ms === 10000).fn();
+      });
+    },
+  });
+  assert.match(driver.nodes.mapStatus.textContent, /Não foi possível carregar/);
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+  driver.events.pagehide();
+  driver.events.pageshow();
+  await settle();
+  assert.equal(driver.scripts.length, 1);
+  driver.scripts[0].onload();
+  await settle();
+  assert.ok(driver.mapCalls.options);
+  assert.equal(driver.scripts.length, 1);
+  assert.equal(driver.nodes.mapStatus.textContent, "");
+  assert.ok(driver.timeouts.filter((timer) => timer.ms === 10000).every((timer) => timer.cleared));
+});
+
+test("link privado compartilha GPS mesmo quando armazenamento de sessão está bloqueado", async () => {
+  const driver = await page({ storageBlocked: true });
+  assert.equal(driver.requests[0].options.headers.Authorization, "Delivery " + token);
+  driver.nodes.start.onclick();
+  driver.fix();
+  await settle();
+  assert.match(driver.nodes.gpsStatus.textContent, /GPS compartilhado/);
+});
+
+test("acompanhamento sem acesso ao armazenamento informa sessão encerrada", async () => {
+  const viewer = await page({
+    storageBlocked: true,
+    search: "?pedido=pedido",
+    onRequest: (url) => url.endsWith("config") ? undefined : ({
+      ok: false,
+      status: 401,
+      json: async () => ({ message: "Token ausente" }),
+    }),
+  });
+  assert.match(viewer.nodes.status.textContent, /Sessão encerrada/);
+  assert.equal(viewer.geo.watched, 0);
 });

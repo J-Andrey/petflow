@@ -14,9 +14,17 @@
       "",
       location.pathname,
     );
-  const bearer = sessionStorage.getItem(
-    admin ? "token" : "petflow_customer_token",
-  );
+  let bearer = null;
+  if (!driver) {
+    try {
+      bearer = sessionStorage.getItem(
+        admin ? "token" : "petflow_customer_token",
+      );
+    } catch {
+      // O link privado do entregador funciona sem armazenamento de sessão.
+      // Para os demais acessos, a API informa que é necessário entrar novamente.
+    }
+  }
   const endpoint = driver
     ? "entregador"
     : (admin ? "admin/" : "cliente/") +
@@ -832,32 +840,43 @@
         );
       };
       if (!mapScriptPromise) {
+        let script;
         const scriptPromise = new Promise((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("Tempo de carregamento excedido")),
-            10000,
-          );
-          const script = document.createElement("script");
+          script = document.createElement("script");
           script.src =
             "https://maps.googleapis.com/maps/api/js?key=" +
             encodeURIComponent(config.key) +
             "&libraries=geometry";
-          script.onload = () => {
-            clearTimeout(timer);
-            resolve();
-          };
+          script.onload = resolve;
           script.onerror = () => {
-            clearTimeout(timer);
             reject(new Error("Falha ao carregar mapa"));
           };
           document.head.append(script);
         });
-        mapScriptPromise = scriptPromise.catch((error) => {
-          if (mapScriptPromise === scriptPromise) mapScriptPromise = null;
-          throw error;
+        mapScriptPromise = scriptPromise;
+        void scriptPromise.catch(() => {
+          if (mapScriptPromise === scriptPromise) {
+            mapScriptPromise = null;
+            script?.remove?.();
+          }
         });
       }
-      await mapScriptPromise;
+      // O limite vale para esta tentativa, não para o download do SDK: um
+      // carregamento tardio é reutilizado ao retomar, sem inserir outro script.
+      let mapTimeout;
+      try {
+        await Promise.race([
+          mapScriptPromise,
+          new Promise((_, reject) => {
+            mapTimeout = setTimeout(
+              () => reject(new Error("Tempo de carregamento excedido")),
+              10000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(mapTimeout);
+      }
       if (attempt !== mapAttempt || !active()) return;
       map = new google.maps.Map($("map"), {
         zoom: 15,

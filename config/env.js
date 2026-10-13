@@ -96,9 +96,9 @@ module.exports = {
 
     RESEND_API_KEY: process.env.RESEND_API_KEY,
 
-    EMAIL_FROM: process.env.EMAIL_FROM || "PetFlow <suporte@tigertech.dev.br>",
+    EMAIL_FROM: process.env.EMAIL_FROM || "",
 
-    EMAIL_TEST_TO: process.env.EMAIL_TEST_TO || "suporte@tigertech.dev.br",
+    EMAIL_TEST_TO: process.env.EMAIL_TEST_TO || "",
 
     APP_URL: process.env.APP_URL || `http://localhost:${process.env.PORT || 4500}`,
 
