@@ -42,7 +42,11 @@ module.exports = async function verifyEmailQueue(pool) {
     const otherWorker = createQueue(sender);
     const message = { to: "synthetic@example.test", subject: "Teste da fila", text: "Conteúdo sintético" };
     try {
-        await db.query(await fs.readFile(path.join(__dirname, "../database/sql/119_fila_emails.sql"), "utf8"));
+        // O runner já aplicou o schema completo em public, incluindo as FKs de
+        // empresas/usuários. A fila isolada também precisa das colunas atuais.
+        for (const migration of ["119_fila_emails.sql", "124_fila_emails_admin.sql"]) {
+            await db.query(await fs.readFile(path.join(__dirname, "../database/sql", migration), "utf8"));
+        }
 
         await assert.rejects(transaction(async client => {
             await queue.enqueueEmail({ ...message, idempotencyKey: "rollback" }, client);

@@ -1,6 +1,6 @@
 # PetFlow original — operação e validação
 
-Atualizado em 09/10/2026. A integração usa a API de produção do PagBank e o token existente. O produto de teste `TESTE-CREDITO-6-20261008` foi publicado por R$ 6,00, com 10 unidades iniciais. Seu pedido foi criado com frete grátis (945 m), mas a reserva terminou sem pagamento: a consulta canônica ao PagBank em 09/10 confirmou checkout EXPIRED, sem cobrança. Não foi efetuado pagamento nem estorno real durante esta revisão.
+Atualizado em 14/10/2026. A integração usa a API de produção do PagBank e o token existente. O produto de teste `TESTE-CREDITO-6-20261008` foi publicado por R$ 6,00, com 10 unidades iniciais. Seu pedido foi criado com frete grátis (945 m), mas a reserva terminou sem pagamento: a consulta canônica ao PagBank em 09/10 confirmou checkout EXPIRED, sem cobrança. Não foi efetuado pagamento nem estorno real durante esta revisão.
 
 ## Diagnóstico e correções
 
@@ -67,6 +67,7 @@ Preservar os SQL já aplicados. Nunca editar um arquivo para contornar o checksu
 | 121 | Vínculos de tutor, categoria, fornecedor e estoque restritos à empresa. |
 | 122 | Nova tentativa após rejeição comprovada do checkout. |
 | 123 | Intenção idempotente de pedido, com vínculo empresa/cliente/venda e índice composto. |
+| 124 | Escopo por empresa e tratamento administrativo da fila de e-mails. |
 
 A migração 113 invalida links antigos de confirmação/recuperação. A 121 usa constraints NOT VALID para preservar possíveis inconsistências legadas; novas gravações são verificadas, mas os registros antigos exigem revisão antes da validação integral.
 
@@ -109,7 +110,7 @@ A restauração destina-se a banco vazio, usa transação única e não apaga ob
 
 - Checkout incerto: conferir a referência no PagBank e usar Conferir pagamentos no painel. Não apagar a intenção para forçar outra cobrança.
 - Reembolso incerto: consultar o provedor; não repetir o POST. Estorno de pedido em rota não comprova devolução física do produto.
-- E-mail FALHA ou INCERTA: analisar antes de repetir. A fila preserva a chave e remove conteúdo pessoal após sucesso ou retenção terminal. Ainda não há painel específico para investigar esses estados.
+- E-mail FALHA ou INCERTA: analisar no painel E-mails. ADMIN/GERENTE consultam a fila da empresa; ADMIN pode reagendar somente falha elegível ou encerrar a análise. INCERTA não permite reenvio. A fila preserva chave/tentativas e remove conteúdo pessoal após sucesso, retenção terminal ou encerramento da análise, sem declarar entrega confirmada.
 - Privacidade: histórico comercial/clínico exige decisão de retenção. A exportação exclui senhas, tokens, payloads brutos do provedor, dados de terceiros e GPS do entregador.
 
 ## Verificações ainda necessárias
@@ -121,3 +122,11 @@ A restauração destina-se a banco vazio, usa transação única e não apaga ob
 - Operação das exceções de e-mail, backup periódico e acompanhamento de deploys.
 
 Os resultados automatizados comprovam os cenários executados; não certificam todos os requisitos comerciais ou integrações externas.
+
+## Preparação da entrega em 14/10/2026
+
+Foram preenchidos README e manuais de entrega, operação e aceite. O empacotador agora verifica os blobs do commit, bloqueia atributos Git que alterariam a exportação e registra tamanho/SHA-256 de cada arquivo, além do hash do ZIP. O ensaio automatizado usa repositórios sintéticos para conferir o conteúdo efetivo do arquivo e a recusa de dados privados, alterações locais e sobrescrita. O pacote do comprador exclui este histórico operacional.
+
+No ambiente local com Node 24.14.0, passaram a verificação de 210 arquivos JavaScript, 210 testes e 500 links locais. A auditoria npm de dependências de produção retornou zero vulnerabilidades após nova consulta com acesso à rede; a primeira tentativa havia falhado por acesso ao registro. A configuração offline também passou, sem validar credenciais externas. A integração PostgreSQL 18 passou em banco novo e isolado, aplicando todas as migrações e exercitando a fila com 119 e 124, isolamento administrativo, concorrência, idempotência e rollback de auditoria. Conexões por campos DB_* passaram a respeitar DB_SSL=true, com testes de precedência e nome esperado.
+
+O workflow de CI adiciona checagens com Node 22 e PostgreSQL 18 descartável. Sua execução remota precisa ser confirmada após publicar a revisão. Compra real, recebimento de e-mail, rota em celulares e homologação nas contas do comprador continuam separados dessas evidências; seguir docs/ACEITE.md.

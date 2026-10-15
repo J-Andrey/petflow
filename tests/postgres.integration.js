@@ -829,6 +829,7 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
     1,
   );
   await require("./email-queue.integration")(pool);
+  await require("./email-queue-admin.integration")({db});
   await require("./reconciliation.integration")({db,company,actor,other});
   await require("./checkout.integration")({db,company,other});
   await require("./legacy-models.integration")({db,company,other,actor});

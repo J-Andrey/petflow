@@ -1,35 +1,38 @@
 "use strict";
 
-function buildDbOptions() {
+function buildDbOptions(env = process.env) {
     const databaseUrl =
-        process.env.DATABASE_URL ||
-        process.env.POSTGRES_URL ||
-        process.env.DATABASE_PUBLIC_URL;
+        env.DATABASE_URL ||
+        env.POSTGRES_URL ||
+        env.DATABASE_PUBLIC_URL;
 
-    const expectedDatabaseName = String(process.env.DB_EXPECTED_NAME || "").trim();
+    const expectedDatabaseName = String(env.DB_EXPECTED_NAME || "").trim();
     const databaseName = databaseUrl
         ? decodeURIComponent(new URL(databaseUrl).pathname.slice(1))
-        : String(process.env.DB_NAME || "").trim();
+        : String(env.DB_NAME || "").trim();
 
     if (expectedDatabaseName && databaseName !== expectedDatabaseName) {
         throw new Error("O banco configurado nao corresponde a DB_EXPECTED_NAME. Confira a conexao do PetFlow original.");
     }
 
+    const sslOptions = env.DB_SSL === "true"
+        ? { ssl: { rejectUnauthorized: false } }
+        : {};
+
     if (databaseUrl) {
         return {
             connectionString: databaseUrl,
-            ...(process.env.DB_SSL === "true"
-                ? { ssl: { rejectUnauthorized: false } }
-                : {})
+            ...sslOptions
         };
     }
 
     return {
-        host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
-        database: process.env.DB_NAME,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD
+        host: env.DB_HOST,
+        port: env.DB_PORT,
+        database: env.DB_NAME,
+        user: env.DB_USER,
+        password: env.DB_PASSWORD,
+        ...sslOptions
     };
 }
 
