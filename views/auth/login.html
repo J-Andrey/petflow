@@ -7,26 +7,40 @@
     <title>PetFlow | Entrar</title>
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
-    <link rel="stylesheet" href="/css/pages/public-login.css?v=20260804-2">
+    <link rel="stylesheet" href="/css/pages/public-login.css?v=20261029-2">
 </head>
-<body>
-    <main class="login-container">
-        <section class="login-card" aria-labelledby="login-title">
+<body class="customer-access">
+    <header class="access-topbar">
+        <a class="access-wordmark" href="/" aria-label="PetFlow — página inicial"><img src="/images/logo/fred-petflow-logo-transparent.png" alt="" width="44" height="44"><span>PetFlow</span></a>
+        <a class="access-back" href="/">Voltar para a loja <span aria-hidden="true">↗</span></a>
+    </header>
+    <main class="login-container access-shell">
+        <aside class="access-story" aria-label="Bem-vindo à PetFlow">
+            <div class="access-picture"><img src="/images/hero/petflow-bem-estar-20261029.jpg" alt="Um cachorro e um gato juntos em um ambiente acolhedor" width="1920" height="640" decoding="async"></div>
+            <div class="access-story-copy">
+                <span class="access-kicker">Cuidado em cada fase.</span>
+                <h2>Seu pet faz parte.<br><em>Você também.</em></h2>
+                <p>Um lugar para acompanhar pedidos, guardar seus favoritos e cuidar de quem deixa a vida mais feliz.</p>
+                <ul><li><span aria-hidden="true">♡</span> Seus favoritos sempre por perto</li><li><span aria-hidden="true">↗</span> Pedidos e entregas em um só lugar</li><li><span aria-hidden="true">◈</span> Privacidade com transparência</li></ul>
+                <a href="/privacidade">Conheça seus direitos de privacidade <span aria-hidden="true">→</span></a>
+            </div>
+        </aside>
+        <section class="login-card access-form-card" aria-labelledby="login-title">
             <header class="login-header">
                 <a class="login-logo" href="/" aria-label="Voltar para a página inicial">
                     <img src="/images/logo/fred-petflow-logo-transparent.png" alt="Logo PetFlow" width="88" height="88">
                 </a>
                 <span class="login-eyebrow">Área do cliente</span>
                 <h1 id="login-title">Entre na sua conta PetFlow</h1>
-                <p>Acompanhe pedidos, favorite produtos e use seu endereço salvo na sacola.</p>
+                <p id="authIntroDescription">Que bom ter você de volta. Entre para continuar cuidando do seu pet.</p>
             </header>
 
             <div class="auth-tabs" role="tablist" aria-label="Acesso do cliente">
-                <button class="auth-tab active" type="button" data-auth-tab="login">Entrar</button>
-                <button class="auth-tab" type="button" data-auth-tab="register">Criar cadastro</button>
+                <button class="auth-tab active" id="authLoginTab" type="button" role="tab" aria-selected="true" aria-controls="publicLoginForm" tabindex="0" data-auth-tab="login">Entrar</button>
+                <button class="auth-tab" id="authRegisterTab" type="button" role="tab" aria-selected="false" aria-controls="publicRegisterForm" tabindex="-1" data-auth-tab="register">Criar minha conta</button>
             </div>
 
-            <form id="publicLoginForm" class="login-form auth-panel active" autocomplete="on">
+            <form id="publicLoginForm" class="login-form auth-panel active" role="tabpanel" aria-labelledby="authLoginTab" autocomplete="on">
                 <div class="form-group">
                     <label for="loginEmail">E-mail</label>
                     <input class="form-control" type="email" id="loginEmail" name="email" placeholder="Digite seu e-mail" autocomplete="email" maxlength="150" required>
@@ -42,21 +56,24 @@
                 <div class="form-row form-row-end">
                     <a href="#" data-public-forgot-password>Esqueci minha senha</a>
                 </div>
-                <p class="login-note" id="loginStatus"></p>
+                <p class="login-note" id="loginStatus" role="status" aria-live="polite" aria-atomic="true"></p>
+                <details class="access-optional"><summary>Verificar meu e-mail (opcional)</summary><p>Você pode entrar sem esta etapa. Se quiser confirmar que o e-mail é seu, informe-o acima e solicite um link.</p><div id="optionalEmailVerification"></div></details>
             </form>
 
-            <form id="publicRegisterForm" class="login-form auth-panel" autocomplete="on">
+            <form id="publicRegisterForm" class="login-form auth-panel" role="tabpanel" aria-labelledby="authRegisterTab" hidden autocomplete="on">
+                <p class="access-register-note"><span aria-hidden="true">✓</span> Crie sua conta e entre sem confirmar por e-mail.</p>
+                <fieldset class="access-fieldset"><legend><span>01</span> Sobre você</legend><p class="access-fieldset-note">Seus dados identificam a conta e ajudam no atendimento dos pedidos.</p><div class="access-fields">
                 <div class="form-group field-wide">
                     <label for="registerNome">Nome</label>
-                    <input class="form-control" id="registerNome" name="nome" placeholder="Nome completo" minlength="3" maxlength="120" pattern="^[A-Za-zÀ-ÿ\s']{3,120}$" required>
+                    <input class="form-control" id="registerNome" name="nome" placeholder="Nome completo" autocomplete="name" minlength="3" maxlength="120" pattern="^[A-Za-zÀ-ÿ\s']{3,120}$" required>
                 </div>
                 <div class="form-group">
                     <label for="registerEmail">E-mail</label>
-                    <input class="form-control" id="registerEmail" name="email" type="email" placeholder="seuemail@exemplo.com" required>
+                    <input class="form-control" id="registerEmail" name="email" type="email" placeholder="seuemail@exemplo.com" autocomplete="email" maxlength="150" required>
                 </div>
                 <div class="form-group">
-                    <label for="registerNascimento">Data de nascimento</label>
-                    <input class="form-control" id="registerNascimento" name="data_nascimento" type="date">
+                    <label for="registerNascimento">Data de nascimento <small>Opcional</small></label>
+                    <input class="form-control" id="registerNascimento" name="data_nascimento" type="date" autocomplete="bday">
                 </div>
                 <div class="form-group">
                     <label for="registerCpf">CPF</label>
@@ -66,9 +83,11 @@
                     <label for="registerTelefone">Celular (WhatsApp)</label>
                     <div class="input-with-icon">
                         <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
-                        <input class="form-control" id="registerTelefone" name="telefone" placeholder="(00) 00000-0000" pattern="^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$" required>
+                        <input class="form-control" id="registerTelefone" name="telefone" type="tel" autocomplete="tel-national" placeholder="(00) 00000-0000" pattern="^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$" required>
                     </div>
                 </div>
+                </div></fieldset>
+                <fieldset class="access-fieldset"><legend><span>02</span> Endereço de entrega</legend><p class="access-fieldset-note">Usado para calcular o frete e entregar seus pedidos. Você pode editar depois.</p><div class="access-fields">
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="registerCep">CEP</label>
@@ -85,7 +104,7 @@
                 </div>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="registerComplemento">Complemento</label>
+                    <label for="registerComplemento">Complemento <small>Opcional</small></label>
                         <input class="form-control" id="registerComplemento" name="complemento" placeholder="Opcional" maxlength="80">
                     </div>
                     <div class="form-group">
@@ -103,18 +122,24 @@
                         <input class="form-control" id="registerEstado" name="estado" maxlength="2" pattern="^[A-Za-z]{2}$" placeholder="SP" required>
                     </div>
                 </div>
+                </div></fieldset>
+                <fieldset class="access-fieldset"><legend><span>03</span> Acesso e privacidade</legend><div class="access-fields">
                 <div class="form-group field-wide">
                     <label for="registerSenha">Senha</label>
-                    <input class="form-control" type="password" id="registerSenha" name="senha" minlength="8" maxlength="72" required>
+                    <input class="form-control" type="password" id="registerSenha" name="senha" minlength="8" maxlength="72" autocomplete="new-password" aria-describedby="registerPasswordHelp" required>
+                    <small class="access-field-help" id="registerPasswordHelp">Use pelo menos 8 caracteres. O limite é de 72 bytes; caracteres acentuados podem ocupar mais de um byte.</small>
                 </div>
-                <label><input type="checkbox" name="aceite_privacidade" required> Li e aceito a <a href="/politica-de-privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</label>
-                <label><input type="checkbox" name="aceite_termos" required> Li e aceito os <a href="/termos-de-uso" target="_blank" rel="noopener">Termos de Uso</a>.</label>
-                <button class="btn btn-primary" type="submit">Enviar cadastro</button>
-                <p class="login-note" id="registerStatus"></p>
+                <label class="access-consent"><input type="checkbox" name="aceite_privacidade" required><span>Li a <a href="/politica-de-privacidade" target="_blank" rel="noopener">Política de Privacidade</a> e estou ciente de como meus dados são utilizados.</span></label>
+                <label class="access-consent"><input type="checkbox" name="aceite_termos" required><span>Li e aceito os <a href="/termos-de-uso" target="_blank" rel="noopener">Termos de Uso</a>.</span></label>
+                <p class="access-field-help field-wide">O cadastro não inscreve você na newsletter. O recebimento de ofertas é uma escolha separada.</p>
+                </div></fieldset>
+                <button class="btn btn-primary" type="submit">Criar minha conta <span aria-hidden="true">→</span></button>
+                <p class="login-note" id="registerStatus" role="status" aria-live="polite" aria-atomic="true"></p>
             </form>
+            <footer class="access-legal"><span>Seus dados merecem cuidado.</span><nav aria-label="Privacidade no acesso"><a href="/politica-de-privacidade">Privacidade</a><a href="/politica-de-cookies">Cookies</a><a href="/privacidade">Seus direitos</a></nav></footer>
         </section>
     </main>
 
-    <script src="/js/pages/auth/public-auth.js?v=20260809-2"></script>
+    <script src="/js/pages/auth/public-auth.js?v=20261029-2"></script>
 </body>
 </html>

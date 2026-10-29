@@ -197,10 +197,12 @@ async function exportCustomerData(db, customer) {
       "s.id,s.protocolo,s.venda_id,s.tipo,s.status,s.motivo,s.resposta,s.solicitada_em,s.prazo_em,s.atendida_em,s.created_at,s.updated_at",
       "FROM solicitacoes_consumidor s JOIN vendas v ON v.id=s.venda_id AND v.empresa_id=s.empresa_id AND v.cliente_id=s.cliente_id WHERE s.cliente_id=$1 AND s.empresa_id=$2 ORDER BY s.solicitada_em,s.id",
     );
-    data.newsletter = await rows(
+    // A igualdade de texto não comprova que a inscrição pertence a uma conta
+    // criada sem confirmação de e-mail. Os demais registros usam cliente_id.
+    data.newsletter = data.conta?.email_verificado === true ? await rows(
       "n.nome,n.email,n.status,n.origem,n.consentimento,n.data_inscricao,n.data_cancelamento,n.created_at,n.updated_at",
-      "FROM newsletter_inscritos n JOIN clientes c ON c.empresa_id=n.empresa_id AND LOWER(c.email)=LOWER(n.email) WHERE c.id=$1 AND n.empresa_id=$2 ORDER BY n.data_inscricao,n.id",
-    );
+      "FROM newsletter_inscritos n JOIN clientes c ON c.empresa_id=n.empresa_id AND LOWER(c.email)=LOWER(n.email) JOIN usuarios_clientes uc ON uc.cliente_id=c.id AND uc.email_verificado=TRUE AND LOWER(uc.email)=LOWER(c.email) WHERE c.id=$1 AND n.empresa_id=$2 ORDER BY n.data_inscricao,n.id",
+    ) : [];
     data.observacao =
       "Exportação dos registros vinculados ao titular nesta empresa. Credenciais, tokens, respostas brutas de provedores e posição do entregador são omitidos. Para revisão de vínculos inconsistentes ou cópias de documentos externos, use o atendimento de privacidade.";
     return data;
@@ -233,6 +235,13 @@ async function processRequest(db, req, id) {
       )
     ).rows[0];
     if (!customer) fail("Titular não encontrado.");
+    const emailAccount = await client.query(
+      "SELECT uc.email_verificado FROM usuarios_clientes uc JOIN clientes c ON c.id=uc.cliente_id WHERE c.id=$1 AND c.empresa_id=$2 AND LOWER(uc.email)=LOWER(c.email) FOR UPDATE OF uc",
+      [customer.id, req.user.empresaId],
+    );
+    const verifiedEmail = emailAccount.rows[0]?.email_verificado === true;
+    if (item.tipo === "REVOGACAO" && !verifiedEmail)
+      fail("Não foi comprovado o vínculo desta conta com a inscrição por e-mail. Use o link de descadastro recebido ou registre a análise de titularidade pelo atendimento.");
     if (item.tipo !== "REVOGACAO") {
       // Bloqueia novos registros filhos durante a verificação de retenção.
       await client.query(
@@ -272,7 +281,8 @@ async function processRequest(db, req, id) {
         [customer.id, req.user.empresaId],
       );
     }
-    await client.query(
+    if (verifiedEmail) {
+      await client.query(
       "DELETE FROM newsletter_inscritos WHERE empresa_id=$1 AND LOWER(email)=LOWER($2)",
       [req.user.empresaId, customer.email],
     );
@@ -281,9 +291,10 @@ async function processRequest(db, req, id) {
       [
         req.user.empresaId,
         customer.id,
-        process.env.PRIVACY_POLICY_VERSION || "2026-10-04",
+        process.env.PRIVACY_POLICY_VERSION || "2026-10-29",
       ],
-    );
+      );
+    }
     const answer =
       item.tipo === "REVOGACAO"
         ? "Consentimento para newsletter revogado. Outros tratamentos seguem as bases aplicáveis; solicite informação para detalhamento."
@@ -305,7 +316,7 @@ async function processRequest(db, req, id) {
       null,
       { status: "ATENDIDA", protocolo: item.protocolo },
     );
-    await enqueueEmail(
+    if (verifiedEmail) await enqueueEmail(
       {
         empresaId: req.user.empresaId,
         to: customer.email,
@@ -318,7 +329,7 @@ async function processRequest(db, req, id) {
     return {
       protocolo: item.protocolo,
       resposta: answer,
-      email: customer.email,
+      email: verifiedEmail ? customer.email : null,
     };
   });
 }

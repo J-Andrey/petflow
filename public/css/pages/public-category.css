@@ -365,3 +365,239 @@ a {
         padding: 24px;
     }
 }
+
+/* Visual da loja — 29/10/2026. Catálogo compacto com os filtros existentes. */
+body {
+    background: #f8faf9;
+}
+
+.category-page {
+    width: min(1240px, calc(100% - 48px));
+    margin-top: 28px;
+    margin-bottom: 64px;
+}
+
+.category-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, .55fr);
+    border-color: #e4eae7;
+    border-radius: 12px;
+    background: #eef7f3;
+    box-shadow: none;
+}
+
+.category-copy {
+    gap: 14px;
+    padding: clamp(24px, 3vw, 40px);
+}
+
+.category-copy h1 {
+    font-size: clamp(1.7rem, 3.2vw, 2.7rem);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -.035em;
+}
+
+.category-copy p {
+    max-width: 58ch;
+    font-size: .94rem;
+    line-height: 1.65;
+}
+
+.category-hero img {
+    height: 250px;
+    min-height: 0;
+    order: 0;
+}
+
+.category-products {
+    margin-top: 34px;
+}
+
+.category-products .section-heading {
+    justify-items: start;
+    gap: 8px;
+    text-align: left;
+}
+
+.category-products .section-heading h2 {
+    font-size: clamp(1.3rem, 2.2vw, 1.65rem);
+    font-weight: 800;
+    letter-spacing: -.025em;
+}
+
+.category-toolbar {
+    align-items: end;
+    padding: 16px;
+    border-color: #e4eae7;
+    border-radius: 9px;
+    background: #fff;
+    box-shadow: none;
+}
+
+.category-toolbar .form-control {
+    min-height: 46px;
+    border-color: #dce5df;
+    border-radius: 6px;
+    font-size: .88rem;
+}
+
+.category-products .products-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.category-products .product-card {
+    display: flex;
+    flex-direction: column;
+    border-color: #e5ebe7;
+    border-radius: 9px;
+    box-shadow: 0 2px 9px rgba(16, 33, 43, .035);
+    transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.category-products .product-card:hover {
+    border-color: #a7cfc2;
+    box-shadow: 0 6px 20px rgba(16, 33, 43, .07);
+}
+
+.category-products .product-card img {
+    display: block;
+    aspect-ratio: 1;
+    padding: 16px;
+    object-fit: contain;
+    background: #fff;
+}
+
+.category-products .product-content {
+    flex: 1;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 8px;
+    padding: 14px;
+}
+
+.category-products .product-category {
+    font-size: .64rem;
+    letter-spacing: .045em;
+}
+
+.category-products .product-title {
+    font-size: .94rem;
+    line-height: 1.45;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.category-products .product-description {
+    font-size: .8rem;
+    line-height: 1.5;
+}
+
+.category-products .product-price {
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -.025em;
+}
+
+.category-products .product-actions {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 6px;
+}
+
+.category-products .cart-action {
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: 10px;
+    border-radius: 6px;
+    font-size: .81rem;
+    font-weight: 700;
+    background: var(--teal);
+}
+
+.category-products .cart-action.favorite {
+    padding-inline: 0;
+    color: var(--teal);
+    background: #e8f5ee;
+}
+
+.category-products .cart-action.is-active {
+    color: #fff;
+    background: #10212b;
+}
+
+.category-page :is(a, button):focus-visible {
+    outline: 3px solid #f7c948;
+    outline-offset: 3px;
+}
+
+@media (max-width: 1000px) {
+    .category-products .products-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .category-hero {
+        grid-template-columns: minmax(0, 1fr) minmax(120px, .55fr);
+    }
+
+    .category-hero img {
+        height: 100%;
+        min-height: 210px;
+        order: 0;
+    }
+
+    .category-copy {
+        padding: 22px;
+    }
+
+    .category-products .products-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+}
+
+@media (max-width: 560px) {
+    .category-page {
+        width: calc(100% - 24px);
+        margin-top: 16px;
+    }
+
+    .category-hero {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .category-copy {
+        padding: 24px 20px;
+    }
+
+    .category-hero img {
+        height: 180px;
+        min-height: 0;
+        order: -1;
+    }
+
+    .category-toolbar {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .category-products .product-card img {
+        padding: 10px;
+    }
+
+    .category-products .product-content {
+        padding: 11px;
+    }
+
+    .category-products .product-title {
+        font-size: .84rem;
+    }
+
+    .category-products .product-actions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .category-products .cart-action.favorite {
+        width: 100%;
+    }
+}

@@ -886,3 +886,166 @@ body {
         text-align: left;
     }
 }
+
+/* Visual da loja — 29/10/2026. Acesso e conta com todos os estados originais. */
+body {
+    background: #f5f8f6;
+    padding: 36px 20px;
+}
+
+.login-container,
+.account-container {
+    border-color: #e0e8e2;
+    border-radius: 14px;
+    box-shadow: 0 8px 40px rgba(16, 33, 43, .06);
+}
+
+.login-container {
+    width: min(100%, 540px);
+}
+
+.login-container.account-container {
+    width: min(100%, 760px);
+}
+
+.login-container.orders-container {
+    width: min(100%, 960px);
+}
+
+.login-container:has(#publicRegisterForm.active) {
+    width: min(100%, 840px);
+}
+
+.login-card,
+.login-container:has(#publicRegisterForm.active) .login-card {
+    padding: clamp(24px, 4vw, 40px);
+}
+
+.login-header {
+    gap: 10px;
+    margin-bottom: 24px;
+}
+
+.login-header h1 {
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    line-height: 1.25;
+    font-weight: 800;
+    letter-spacing: -.035em;
+}
+
+.login-header p {
+    font-size: .88rem;
+    line-height: 1.65;
+}
+
+.login-eyebrow {
+    border-radius: 5px;
+    font-size: .65rem;
+    letter-spacing: .045em;
+}
+
+.login-logo img {
+    width: 64px;
+    height: 64px;
+    filter: none;
+}
+
+.auth-tabs,
+.account-links {
+    padding: 4px;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-color: #e4ebe6;
+    background: #f5f8f6;
+}
+
+.auth-tab,
+.account-links a {
+    min-height: 44px;
+    border-radius: 5px;
+    font-size: .85rem;
+    font-weight: 700;
+}
+
+.auth-tab.active,
+.account-links a.active {
+    background: var(--teal);
+    box-shadow: 0 2px 6px rgba(4, 118, 109, .14);
+}
+
+.login-card .form-group label {
+    font-size: .8rem;
+    font-weight: 700;
+}
+
+.login-card .form-control,
+.login-container:has(#publicRegisterForm.active) .form-control {
+    min-height: 46px;
+    border-color: #d8e2db;
+    border-radius: 6px;
+    background: #fff;
+    font-size: .9rem;
+}
+
+.login-card .btn,
+.login-container:has(#publicRegisterForm.active) .btn {
+    min-height: 46px;
+    border-radius: 6px;
+    font-size: .9rem;
+    font-weight: 700;
+    box-shadow: 0 3px 9px rgba(4, 118, 109, .12);
+}
+
+.login-card .btn:not(.btn-secondary):not(.btn-danger):not(.btn-remove-pet):not(.btn-edit-pet):not(.btn-clear-pet) {
+    background: var(--teal);
+}
+
+.login-card .btn-secondary {
+    box-shadow: none;
+}
+
+.login-card .password-toggle {
+    width: 44px;
+    height: 44px;
+}
+
+.login-card .password-control .form-control {
+    padding-right: 52px;
+}
+
+.login-card .order-card,
+.login-card .public-pet-card {
+    border-color: #e2eae4;
+    border-radius: 9px;
+    box-shadow: none;
+    background: #fff;
+}
+
+.login-card .order-card header b {
+    color: var(--teal);
+    font-size: 1.25rem;
+}
+
+.login-card :is(button, a):focus-visible {
+    outline: 3px solid #f7c948;
+    outline-offset: 3px;
+}
+
+.login-card [hidden] {
+    display: none !important;
+}
+
+@media (max-width: 680px) {
+    body {
+        padding: 28px 12px;
+    }
+
+    .login-card,
+    .login-container:has(#publicRegisterForm.active) .login-card {
+        padding: 26px 20px;
+    }
+
+    .auth-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

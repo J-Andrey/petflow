@@ -24,7 +24,6 @@ async function register(request, response, next) {
             success: false, message: "Confira os dados, CPF, endereço, senha de 8 a 72 bytes e aceite os Termos e a Política de Privacidade."
         });
         const senhaHash = await bcrypt.hash(data.senha, 12);
-        const token = crypto.randomBytes(32).toString("hex");
         await db.transaction(async client => {
             const company = await client.query("SELECT get_petflow_empresa_id() AS id");
             const empresaId = company.rows[0].id;
@@ -35,24 +34,23 @@ async function register(request, response, next) {
             const existing = await client.query(
                 "SELECT id FROM clientes WHERE empresa_id=$1 AND (LOWER(email)=LOWER($2) OR regexp_replace(cpf,'[^0-9]','','g')=$3 OR regexp_replace(telefone,'[^0-9]','','g')=ANY($4::text[]) OR regexp_replace(whatsapp,'[^0-9]','','g')=ANY($4::text[])) LIMIT 1",
                 [empresaId, data.email.trim(), validation.digits(data.cpf), [phone, whatsapp]]);
-            if (existing.rowCount) throw Object.assign(new Error("Dados já cadastrados. Entre na conta ou solicite o reenvio da confirmação."), { status: 409 });
+            if (existing.rowCount) throw Object.assign(new Error("Dados já cadastrados. Entre na conta ou recupere sua senha."), { status: 409 });
             const created = await client.query(
                 "INSERT INTO clientes (empresa_id,nome,cpf,email,telefone,whatsapp,cep,endereco,numero,complemento,bairro,cidade,estado,data_nascimento,ativo,privacidade_versao,privacidade_aceita_em) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,TRUE,$15,NOW()) RETURNING id",
-                [empresaId,data.nome.trim(),formatCpf(data.cpf),data.email.trim().toLowerCase(),phone,whatsapp,validation.digits(data.cep),data.endereco.trim(),data.numero.trim(),data.complemento||null,data.bairro.trim(),data.cidade.trim(),data.estado.toUpperCase(),data.data_nascimento||null,process.env.PRIVACY_POLICY_VERSION||"2026-10-04"]);
+                [empresaId,data.nome.trim(),formatCpf(data.cpf),data.email.trim().toLowerCase(),phone,whatsapp,validation.digits(data.cep),data.endereco.trim(),data.numero.trim(),data.complemento||null,data.bairro.trim(),data.cidade.trim(),data.estado.toUpperCase(),data.data_nascimento||null,process.env.PRIVACY_POLICY_VERSION||"2026-10-29"]);
             const id=created.rows[0].id;
             await client.query(
-                "INSERT INTO usuarios_clientes (cliente_id,email,senha_hash,email_verificado,token_verificacao_email,token_verificacao_expiracao,ativo) VALUES ($1,$2,$3,FALSE,$4,NOW()+INTERVAL '24 hours',TRUE)",
-                [id,data.email.trim().toLowerCase(),senhaHash,hashToken(token)]);
+                "INSERT INTO usuarios_clientes (cliente_id,email,senha_hash,email_verificado,token_verificacao_email,token_verificacao_expiracao,ativo) VALUES ($1,$2,$3,FALSE,NULL,NULL,TRUE)",
+                [id,data.email.trim().toLowerCase(),senhaHash]);
             for (const finalidade of ["PRIVACIDADE","TERMOS"]) await client.query(
                 "INSERT INTO lgpd_consentimentos (empresa_id,cliente_id,finalidade,versao,concedido,origem,ip_hash,user_agent_hash) VALUES ($1,$2,$3,$4,TRUE,'SITE',$5,$6)",
-                [empresaId,id,finalidade,process.env.PRIVACY_POLICY_VERSION||"2026-10-04",
+                [empresaId,id,finalidade,process.env.PRIVACY_POLICY_VERSION||"2026-10-29",
                     crypto.createHmac("sha256",JWT_SECRET).update(request.ip||"").digest("hex"),
                     crypto.createHmac("sha256",JWT_SECRET).update(request.get("user-agent")||"").digest("hex")]);
-            const template=emailVerificationTemplate({name:data.nome,verifyUrl:APP_URL+"/login?verificar_email="+token});
-            // Se o envio crítico falhar, todos os inserts são revertidos.
-            await sendEmail({to:data.email.trim(),...template,idempotencyKey:"verify-"+hashToken(token)});
+            // A conta já pode entrar com senha. O endereço informado permanece
+            // não verificado: cadastrar-se não comprova a posse do e-mail.
         });
-        return response.status(201).json({success:true,message:"Cadastro criado. Confirme seu e-mail para entrar."});
+        return response.status(201).json({success:true,message:"Cadastro criado. Você já pode entrar com seu e-mail e senha."});
     } catch(error) { return next(error); }
 }
 
@@ -140,15 +138,6 @@ async function login(request, response, next) {
             return response.status(401).json({
                 success: false,
                 message: "E-mail ou senha inválidos."
-            });
-
-        }
-
-        if (!cliente.email_verificado) {
-
-            return response.status(403).json({
-                success: false,
-                message: "Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada."
             });
 
         }
@@ -503,7 +492,9 @@ async function remove(request,response,next) {
         await db.transaction(async client=>{
             await client.query("SELECT id FROM clientes WHERE id=$1 AND empresa_id=$2 FOR UPDATE",[customer.id,customer.empresaId]);
             await client.query("INSERT INTO lgpd_solicitacoes (protocolo,empresa_id,cliente_id,email_referencia,tipo,detalhes) VALUES ($1,$2,$3,$4,'EXCLUSAO','Exclusão solicitada pelo titular; analisar retenção e operações em aberto.')",[protocolo,customer.empresaId,customer.id,customer.email]);
-            await client.query("DELETE FROM newsletter_inscritos WHERE empresa_id=$1 AND LOWER(email)=LOWER($2)",[customer.empresaId,customer.email]);
+            // Uma conta sem prova do e-mail não pode remover inscrições que
+            // tenham sido criadas antes dela apenas por igualdade de endereço.
+            await client.query("DELETE FROM newsletter_inscritos n WHERE n.empresa_id=$1 AND LOWER(n.email)=LOWER($2) AND EXISTS (SELECT 1 FROM usuarios_clientes uc JOIN clientes c ON c.id=uc.cliente_id WHERE c.id=$3 AND c.empresa_id=n.empresa_id AND LOWER(c.email)=LOWER(n.email) AND LOWER(uc.email)=LOWER(c.email) AND uc.email_verificado=TRUE)",[customer.empresaId,customer.email,customer.id]);
             await client.query("UPDATE usuarios_clientes SET sessao_versao=sessao_versao+1 WHERE cliente_id=$1",[customer.id]);
         });
         return response.status(202).json({success:true,protocolo,message:"Solicitação de exclusão registrada: "+protocolo+". Dados necessários e atendimentos serão preservados durante a análise."});

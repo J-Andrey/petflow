@@ -1,7 +1,7 @@
 "use strict";
 
 (function setupPetFlowPublicHeader() {
-    const HEADER_VERSION = "20260811-1";
+    const HEADER_VERSION = "20261029-1";
 
     document.addEventListener("DOMContentLoaded", initPublicHeader);
 
@@ -62,6 +62,13 @@
                             <li class="menu-item">
                                 <a href="/#hero" class="menu-link" data-public-nav="home">Início</a>
                             </li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/caes" class="menu-link">Cães</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/gatos" class="menu-link">Gatos</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/aves" class="menu-link">Aves</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/peixes" class="menu-link">Peixes</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/roedores" class="menu-link">Roedores</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/repteis" class="menu-link">Répteis</a></li>
+                            <li class="menu-item menu-category-item"><a href="/categorias/acessorios" class="menu-link">Acessórios</a></li>
                             <li class="menu-item">
                                 <a href="/#categories" class="menu-link" data-public-nav="categories">Categorias</a>
                             </li>

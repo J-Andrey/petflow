@@ -27,24 +27,45 @@ document.addEventListener("petflow:customer-logout", () => {
 });
 
 function setupTabs() {
-    document.querySelectorAll("[data-auth-tab]").forEach(button => {
-        button.addEventListener("click", () => {
-            const tab = button.dataset.authTab;
-            const formId = tab === "login"
-                ? "publicLoginForm"
-                : "publicRegisterForm";
-
-            document
-                .querySelectorAll("[data-auth-tab]")
-                .forEach(item => item.classList.toggle("active", item === button));
-
-            document
-                .querySelectorAll(".auth-panel")
-                .forEach(panel => panel.classList.remove("active"));
-
-            document.getElementById(formId)?.classList.add("active");
+    const tabs = Array.from(document.querySelectorAll("[data-auth-tab]"));
+    if (!tabs.length) return;
+    tabs.forEach((button, index) => {
+        button.addEventListener("click", () => selectAuthTab(button.dataset.authTab));
+        button.addEventListener("keydown", event => {
+            let next;
+            if (["ArrowRight", "ArrowDown"].includes(event.key)) next = (index + 1) % tabs.length;
+            else if (["ArrowLeft", "ArrowUp"].includes(event.key)) next = (index + tabs.length - 1) % tabs.length;
+            else if (event.key === "Home") next = 0;
+            else if (event.key === "End") next = tabs.length - 1;
+            if (next === undefined) return;
+            event.preventDefault();
+            selectAuthTab(tabs[next].dataset.authTab, true);
         });
     });
+    const params = new URLSearchParams(window.location.search);
+    selectAuthTab(window.location.pathname === "/cadastro" || params.get("cadastro") === "1" ? "register" : "login");
+}
+
+function selectAuthTab(tab, focus = false) {
+    const register = tab === "register";
+    document.querySelectorAll("[data-auth-tab]").forEach(button => {
+        const selected = button.dataset.authTab === (register ? "register" : "login");
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+        if (selected && focus) button.focus();
+    });
+    for (const [id, selected] of [["publicLoginForm", !register], ["publicRegisterForm", register]]) {
+        const panel = document.getElementById(id);
+        if (!panel) continue;
+        panel.classList.toggle("active", selected);
+        panel.hidden = !selected;
+    }
+    setText(document.getElementById("login-title"), register ? "Crie sua conta PetFlow" : "Entre na sua conta PetFlow");
+    setText(document.getElementById("authIntroDescription"), register
+        ? "É simples começar. Preencha seus dados e entre com seu e-mail e senha, sem aguardar uma confirmação."
+        : "Que bom ter você de volta. Entre para continuar cuidando do seu pet.");
+    document.title = register ? "PetFlow | Criar conta" : "PetFlow | Entrar";
 }
 
 function setupPublicLogin() {
@@ -52,8 +73,13 @@ function setupPublicLogin() {
 
     form?.addEventListener("submit", async event => {
         event.preventDefault();
+        if (form.dataset.submitting === "true") return;
         const status = document.getElementById("loginStatus");
-        setStatus(status, "Entrando...");
+        const button = form.querySelector("button[type='submit']");
+        form.dataset.submitting = "true";
+        form.setAttribute("aria-busy", "true");
+        if (button) button.disabled = true;
+        setStatus(status, "Entrando...", "loading");
 
         try {
             const payload = await request(
@@ -65,7 +91,11 @@ function setupPublicLogin() {
             saveCustomer(payload.data);
             window.location.href = publicLoginDestination();
         } catch (error) {
-            setStatus(status, error.message);
+            setStatus(status, error.message, "error");
+        } finally {
+            form.dataset.submitting = "false";
+            form.setAttribute("aria-busy", "false");
+            if (button) button.disabled = false;
         }
     });
 }
@@ -76,13 +106,19 @@ function setupPublicRegister() {
 
     form?.addEventListener("submit", async event => {
         event.preventDefault();
+        if (form.dataset.submitting === "true") return;
         const status = document.getElementById("registerStatus");
 
         if (!validateCpfInput(form.elements.cpf, status)) {
             return;
         }
 
-        setStatus(status, "Criando cadastro...");
+        const email = String(form.elements.email.value || "").trim();
+        const button = form.querySelector("button[type='submit']");
+        form.dataset.submitting = "true";
+        form.setAttribute("aria-busy", "true");
+        if (button) button.disabled = true;
+        setStatus(status, "Criando cadastro...", "loading");
 
         try {
             const payload = await request(
@@ -91,11 +127,21 @@ function setupPublicRegister() {
                 Object.fromEntries(new FormData(form).entries())
             );
 
-            setStatus(status, payload.message || "Cadastro criado. Verifique seu e-mail para ativar a conta.");
             form.reset();
-            document.querySelector("[data-auth-tab='login']")?.click();
+            const loginEmail = document.getElementById("loginEmail");
+            const loginPassword = document.getElementById("loginSenha");
+            if (loginEmail) loginEmail.value = email;
+            if (loginPassword) loginPassword.value = "";
+            selectAuthTab("login");
+            setStatus(status, "");
+            setStatus(document.getElementById("loginStatus"), payload.message || "Cadastro criado. Você já pode entrar com seu e-mail e senha.", "success");
+            loginPassword?.focus();
         } catch (error) {
-            setStatus(status, error.message);
+            setStatus(status, error.message, "error");
+        } finally {
+            form.dataset.submitting = "false";
+            form.setAttribute("aria-busy", "false");
+            if (button) button.disabled = false;
         }
     });
 }
@@ -811,9 +857,10 @@ function setText(element, message) {
     }
 }
 
-function setStatus(element, message) {
+function setStatus(element, message, state = "") {
     if (element) {
         element.textContent = message || "";
+        if (element.dataset) element.dataset.state = state;
     }
 }
 
@@ -858,10 +905,12 @@ function escapeHtml(value) {
 
 function setupResendVerification() {
     const form = document.getElementById("publicLoginForm");
-    if (!form) return;
+    const container = document.getElementById("optionalEmailVerification");
+    if (!form || !container || container.dataset.bound === "true") return;
+    container.dataset.bound = "true";
     const button=document.createElement("button");
-    button.type="button"; button.className="btn"; button.textContent="Reenviar confirmação de e-mail";
-    form.appendChild(button);
+    button.type="button"; button.className="btn btn-secondary"; button.textContent="Enviar link opcional de verificação";
+    container.appendChild(button);
     button.addEventListener("click",async()=>{
         button.disabled=true;
         try {

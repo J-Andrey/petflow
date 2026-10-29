@@ -326,10 +326,6 @@ function renderProducts(products, options = {}) {
         `;
     }).join("");
 
-    if (options.emptyMessage) {
-        grid.insertAdjacentHTML("afterbegin", `<div class="public-empty">${escapeHtml(options.emptyMessage)}</div>`);
-    }
-
     bindProductActions();
 }
 

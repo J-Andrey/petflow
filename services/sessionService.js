@@ -34,7 +34,7 @@ function createSessionMiddleware({ db, secret, type }) {
                 : `SELECT c.id, c.empresa_id, c.nome, c.email, 'CLIENTE' AS perfil, uc.sessao_versao
                    FROM clientes c JOIN usuarios_clientes uc ON uc.cliente_id = c.id
                    WHERE c.id = $1 AND c.empresa_id = $2 AND c.ativo = TRUE
-                     AND uc.ativo = TRUE AND uc.email_verificado = TRUE AND c.anonimizado_em IS NULL`;
+                     AND uc.ativo = TRUE AND c.anonimizado_em IS NULL`;
             const { rows } = await db.query(sql, [decoded.id, decoded.empresaId]);
             const account = rows[0];
             if (!account || account.sessao_versao !== decoded.sessao_versao || account.perfil !== decoded.perfil ||

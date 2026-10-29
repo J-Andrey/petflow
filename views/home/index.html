@@ -52,6 +52,9 @@
         rel="stylesheet"
         href="/css/pages/home-carousel.css?v=20260809-3">
 
+    <link rel="stylesheet" href="/css/pages/storefront-refresh.css?v=20261029-1">
+    <link rel="stylesheet" href="/css/layout/public-header.css?v=20261029-1">
+
 </head>
 
 <body>
@@ -60,7 +63,7 @@
          HEADER
     ================================================== -->
 
-        <header class="header">
+        <header class="header public-header">
 
             <div class="container">
 
@@ -147,6 +150,14 @@
                             </a>
 
                         </li>
+
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/caes">Cães</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/gatos">Gatos</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/aves">Aves</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/peixes">Peixes</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/roedores">Roedores</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/repteis">Répteis</a></li>
+                        <li class="menu-item menu-category-item"><a class="menu-link" href="/categorias/acessorios">Acessórios</a></li>
 
                         <li class="menu-item">
 
@@ -302,6 +313,8 @@
 
     <main class="home">
 
+        <div class="store-notice">Para todas as fases, <span>todo o carinho.</span> Conheça o universo PetFlow.</div>
+
         <!-- ==========================================
              HERO
         ========================================== -->
@@ -312,6 +325,21 @@
                 aria-label="Banner principal">
 
                 <div class="carousel-track">
+
+                <article class="carousel-item lifestyle-slide">
+                    <div class="container hero-container">
+                        <div class="hero-image"><img src="/images/hero/petflow-bem-estar-20261029.jpg" alt="Cachorro e gato juntos em um ambiente acolhedor" loading="eager" decoding="async" fetchpriority="high"></div>
+                        <div class="hero-content">
+                            <span class="hero-subtitle">Pequenos momentos. Grandes amigos.</span>
+                            <h2 class="hero-title">Para eles, todo o <em>cuidado do mundo.</em></h2>
+                            <p class="hero-description">Produtos, serviços e carinho para fazer parte de cada fase da vida do seu pet.</p>
+                            <div class="hero-buttons">
+                                <a href="#products" class="btn btn-primary">Explorar produtos <span aria-hidden="true">→</span></a>
+                                <a href="#services" class="btn btn-outline">Conhecer serviços</a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
 
             <!-- ==========================================
                 SLIDE 1
@@ -597,9 +625,18 @@
                 type="button"
                 aria-label="Ir para o slide 4"></button>
 
+            <button class="carousel-indicator" type="button" aria-label="Ir para o slide 5"></button>
+
         </div>
 
     </section>
+
+        <nav class="store-assurances" aria-label="Conheça a PetFlow">
+            <a href="/meus-pedidos"><i class="fa-solid fa-truck-fast" aria-hidden="true"></i><span><strong>Entrega acompanhada</strong><small>Consulte seus pedidos</small></span></a>
+            <a href="/sacola"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span><strong>Pagamento online</strong><small>Checkout com PagBank</small></span></a>
+            <a href="#services"><i class="fa-solid fa-paw" aria-hidden="true"></i><span><strong>Cuidado em cada fase</strong><small>Conheça nossos serviços</small></span></a>
+            <a href="#newsletter"><i class="fa-regular fa-envelope" aria-hidden="true"></i><span><strong>Mais perto de você</strong><small>Dicas e novidades por e-mail</small></span></a>
+        </nav>
 
         <!-- ==========================================
              CATEGORIAS
@@ -653,8 +690,8 @@
                         aria-label="Ver produtos para cães">
 
                         <img
-                            src="/images/categories/dogs.jpg"
-                            alt="Produtos para cães"
+                            src="/images/categories/dogs-photo-20261029.jpg"
+                            alt="Cachorro da categoria Cães"
                             loading="lazy"
                             decoding="async">
 
@@ -677,8 +714,8 @@
                         aria-label="Ver produtos para gatos">
 
                         <img
-                            src="/images/categories/cats.jpg"
-                            alt="Produtos para gatos"
+                            src="/images/categories/cats-photo-20261029.jpg"
+                            alt="Gato da categoria Gatos"
                             loading="lazy"
                             decoding="async">
 
@@ -701,8 +738,8 @@
                         aria-label="Ver produtos para aves">
 
                         <img
-                            src="/images/categories/birds.jpg"
-                            alt="Produtos para aves"
+                            src="/images/categories/birds-photo-20261029.jpg"
+                            alt="Calopsita da categoria Aves"
                             loading="lazy"
                             decoding="async">
 
@@ -725,8 +762,8 @@
                         aria-label="Ver produtos para peixes">
 
                         <img
-                            src="/images/categories/fish.jpg"
-                            alt="Produtos para peixes"
+                            src="/images/categories/fish-photo-20261029.jpg"
+                            alt="Peixe da categoria Peixes"
                             loading="lazy"
                             decoding="async">
 
@@ -749,8 +786,8 @@
                         aria-label="Ver produtos para roedores">
 
                         <img
-                            src="/images/categories/rodents.jpg"
-                            alt="Produtos para roedores"
+                            src="/images/categories/rodents-photo-20261029.jpg"
+                            alt="Hamster da categoria Roedores"
                             loading="lazy"
                             decoding="async">
 
@@ -762,6 +799,13 @@
 
                     </a>
 
+                </article>
+
+                <article class="category-card">
+                    <a href="/categorias/repteis" aria-label="Ver produtos para répteis">
+                        <img src="/images/categories/jabuti-photo-20261029.jpg" alt="Jabuti da categoria Répteis" loading="lazy" decoding="async">
+                        <h3>Répteis</h3>
+                    </a>
                 </article>
 
                 <!-- Acessórios -->
@@ -1305,6 +1349,7 @@
                                 </a>
 
                             </li>
+                            <li><a href="/entrega-demo.html">Demonstração da entrega</a></li>
 
                         </ul>
 
@@ -1447,6 +1492,12 @@
         defer></script>
 
 <script src="/js/layout/cart-sidebar.js" defer></script>
+<nav class="store-mobile-nav" aria-label="Atalhos da loja">
+    <a href="/#hero"><i class="fa-solid fa-house" aria-hidden="true"></i><span>Início</span></a>
+    <a href="/#categories"><i class="fa-solid fa-shapes" aria-hidden="true"></i><span>Categorias</span></a>
+    <a href="/meus-pedidos"><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i><span>Pedidos</span></a>
+    <a href="/conta"><i class="fa-regular fa-user" aria-hidden="true"></i><span>Conta</span></a>
+</nav>
 </body>
 
 </html>

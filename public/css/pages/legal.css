@@ -72,3 +72,48 @@ body {
     color: #52636e;
     line-height: 1.72;
 }
+
+/* Visual da loja — 29/10/2026. Textos e navegação preservados. */
+body {
+    background: #f8faf9;
+}
+
+.legal-page {
+    max-width: 900px;
+    padding-top: 28px;
+}
+
+.legal-card {
+    border-color: #e4eae7;
+    border-radius: 12px;
+    box-shadow: 0 4px 22px rgba(16, 33, 43, .04);
+}
+
+.legal-card h1 {
+    font-size: clamp(1.75rem, 4vw, 2.65rem);
+    line-height: 1.2;
+    letter-spacing: -.035em;
+}
+
+.legal-card h2 {
+    margin-top: 30px;
+    font-size: 1.12rem;
+    line-height: 1.4;
+}
+
+.legal-card p {
+    max-width: 74ch;
+    font-size: .94rem;
+    line-height: 1.85;
+}
+
+.legal-back {
+    min-height: 44px;
+    border-radius: 6px;
+    font-size: .88rem;
+}
+
+.legal-page a:focus-visible {
+    outline: 3px solid #f7c948;
+    outline-offset: 3px;
+}

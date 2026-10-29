@@ -834,4 +834,5 @@ test("PostgreSQL: migrações, reservas, concorrência, sessões e isolamento", 
   await require("./checkout.integration")({db,company,other});
   await require("./legacy-models.integration")({db,company,other,actor});
   await require("./order-intent.integration")({db,company,other,secret});
+  await require("./reptile-category.integration")({db,company,other});
 });

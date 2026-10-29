@@ -335,3 +335,134 @@ textarea.form-control {
         grid-template-columns: 1fr;
     }
 }
+
+/* Visual da loja — 29/10/2026. Formulário e disponibilidade preservados. */
+body {
+    background: #f8faf9;
+}
+
+.service-page {
+    width: min(1240px, calc(100% - 48px));
+    margin-top: 28px;
+    margin-bottom: 64px;
+}
+
+.service-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .85fr);
+    border-color: #e4eae7;
+    border-radius: 12px;
+    box-shadow: 0 3px 16px rgba(16, 33, 43, .035);
+}
+
+.service-copy {
+    min-width: 0;
+    gap: 18px;
+    padding: clamp(24px, 4vw, 48px);
+}
+
+.service-copy h1 {
+    font-size: clamp(1.8rem, 3vw, 2.8rem);
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -.035em;
+}
+
+.service-copy p {
+    font-size: .96rem;
+    line-height: 1.7;
+}
+
+.service-hero img {
+    height: 340px;
+    min-height: 100%;
+}
+
+.service-price strong {
+    font-size: 1.75rem;
+    letter-spacing: -.025em;
+}
+
+.service-content {
+    grid-template-columns: minmax(0, .7fr) minmax(0, 1fr);
+    gap: 24px;
+    margin-top: 24px;
+    align-items: start;
+}
+
+.info-panel,
+.request-panel {
+    min-width: 0;
+    padding: 28px;
+    border-color: #e4eae7;
+    border-radius: 10px;
+    box-shadow: 0 3px 16px rgba(16, 33, 43, .035);
+}
+
+.info-panel h2,
+.request-panel h2 {
+    font-size: 1.2rem;
+    letter-spacing: -.025em;
+}
+
+.info-panel li {
+    font-size: .9rem;
+    line-height: 1.75;
+}
+
+.service-form .form-control {
+    min-width: 0;
+    min-height: 46px;
+    border-color: #dce5df;
+    border-radius: 6px;
+    font-size: .9rem;
+}
+
+.service-form .form-group label {
+    font-size: .8rem;
+    font-weight: 700;
+}
+
+.service-form .btn,
+.request-panel .login-cta {
+    min-height: 46px;
+    border-radius: 6px;
+    background: var(--teal);
+    font-size: .9rem;
+    font-weight: 700;
+    box-shadow: 0 3px 9px rgba(4, 118, 109, .12);
+}
+
+.service-page :is(button, a):focus-visible {
+    outline: 3px solid #f7c948;
+    outline-offset: 3px;
+}
+
+@media (max-width: 860px) {
+    .service-hero,
+    .service-content {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .service-hero img {
+        height: 280px;
+        min-height: 0;
+        order: -1;
+    }
+}
+
+@media (max-width: 560px) {
+    .service-page {
+        width: calc(100% - 24px);
+        margin-top: 16px;
+    }
+
+    .service-copy,
+    .info-panel,
+    .request-panel {
+        padding: 22px;
+    }
+
+    .service-hero img {
+        height: 220px;
+    }
+}

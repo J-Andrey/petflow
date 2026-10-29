@@ -8,33 +8,39 @@ const CATEGORY_CONFIG = {
     caes: {
         title: "Produtos para cães",
         description: "Rações, petiscos, acessórios e cuidados selecionados para cachorros.",
-        image: "/images/categories/dogs.jpg",
+        image: "/images/categories/dogs-photo-20261029.jpg",
         keywords: ["cao", "caes", "cachorro", "canis", "bifinho", "coleira", "adultos"]
     },
     gatos: {
         title: "Produtos para gatos",
         description: "Itens escolhidos para gatos, com foco em alimentação, conforto e rotina.",
-        image: "/images/categories/cats.jpg",
+        image: "/images/categories/cats-photo-20261029.jpg",
         keywords: ["gato", "gatos", "felis", "castrados"]
     },
     aves: {
         title: "Produtos para aves",
         description: "Alimentos, acessórios e cuidados para aves de estimação.",
-        image: "/images/categories/birds.jpg",
+        image: "/images/categories/birds-photo-20261029.jpg",
         keywords: ["ave", "aves", "passaro", "passaros", "calopsita", "periquito"]
     },
     peixes: {
         title: "Produtos para peixes",
         description: "Itens para aquários, alimentação, limpeza e bem-estar dos peixes.",
-        image: "/images/categories/fish.jpg",
+        image: "/images/categories/fish-photo-20261029.jpg",
         keywords: ["peixe", "peixes", "aquario", "aquarios"]
     },
     roedores: {
         title: "Produtos para roedores",
         description: "Produtos para hamster, porquinho-da-índia, coelhos e pequenos pets.",
-        image: "/images/categories/rodents.jpg",
+        image: "/images/categories/rodents-photo-20261029.jpg",
         keywords: ["roedor", "roedores", "hamster", "coelho", "porquinho"],
         fallbackCategories: ["Petiscos", "Acessórios", "Higiene"]
+    },
+    repteis: {
+        title: "Produtos para répteis",
+        description: "Rações, acessórios e cuidados para tartarugas, jabutis e outros répteis de estimação.",
+        image: "/images/categories/jabuti-photo-20261029.jpg",
+        keywords: ["repteis", "reptil", "tartaruga", "jabuti", "quelonio"]
     },
     acessorios: {
         title: "Acessórios para pets",

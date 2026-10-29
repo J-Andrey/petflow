@@ -1,1 +1,71 @@
 :root{font-family:system-ui,sans-serif;color:#15332e;background:#f3f7f6}*{box-sizing:border-box}.professional{max-width:1200px;margin:auto;padding:32px 24px}.professional h1{margin:20px 0 8px}.professional nav,.professional form,.professional .pagination{display:flex;gap:12px;flex-wrap:wrap;margin:20px 0}.professional button,.professional input,.professional select,.professional textarea{font:inherit;border:1px solid #bdccc7;border-radius:8px;padding:10px 14px}.professional button{background:#076d5e;color:white;cursor:pointer}.professional button:disabled{opacity:.45;cursor:default}.professional label{display:flex;flex-direction:column;gap:6px}.professional textarea{min-height:130px;min-width:260px}.professional #editor,.professional article{background:white;padding:20px;border-radius:14px;margin:20px 0}.professional td{max-width:400px;white-space:pre-wrap;overflow-wrap:anywhere;padding:14px}.professional pre{white-space:pre-wrap}.professional .table-wrap{overflow:auto;background:white;border-radius:12px}.professional [hidden]{display:none!important}.professional a{color:#075f53}.professional #status{min-height:24px}.professional input:focus,.professional button:focus-visible{outline:3px solid #d2a750;outline-offset:2px}@media(max-width:600px){.professional{padding:20px 12px}.professional form>*{width:100%}.professional nav{gap:6px}.professional nav button{flex:1}}
+
+/* A mesma apresentação da gestão, mantendo todos os módulos disponíveis. */
+.professional { max-width: 1440px; padding: 28px; }
+.professional > header {
+    padding: 25px 28px;
+    border: 1px solid var(--admin-line);
+    border-left: 4px solid var(--admin-teal);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 3px 14px rgba(23, 33, 43, .035);
+}
+.professional > header > a { font-size: 12px; font-weight: 600; }
+.professional h1 { margin: 17px 0 7px; font-size: 29px; letter-spacing: -.8px; }
+.professional > header p { margin: 0; color: var(--admin-muted); font-size: 13px; line-height: 1.6; }
+.professional nav {
+    gap: 7px;
+    padding: 14px;
+    border: 1px solid var(--admin-line);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 3px 14px rgba(23, 33, 43, .035);
+}
+.professional button {
+    min-height: 40px;
+    padding: 10px 15px;
+    border-color: var(--admin-teal);
+    border-radius: 7px;
+    background: var(--admin-teal);
+    font-size: 12px;
+    font-weight: 600;
+}
+.professional nav button {
+    border-color: #e1e9ed;
+    background: #f8fafb;
+    color: #425866;
+    font-weight: 500;
+}
+.professional nav button:hover,
+.professional nav button:focus-visible { color: var(--admin-teal-dark); background: #eaf6f2; border-color: #afd9ce; }
+.professional button:disabled { opacity: .45; cursor: default; }
+.professional h2 { margin-top: 28px; font-size: 20px; letter-spacing: -.45px; }
+.professional form { align-items: flex-end; gap: 12px; }
+.professional label { gap: 8px; color: var(--admin-muted); font-size: 11px; font-weight: 600; }
+.professional input,
+.professional select,
+.professional textarea { min-height: 42px; border-color: var(--admin-line); background: #fff; color: var(--admin-ink); font-size: 13px; }
+.professional .table-wrap { border: 1px solid var(--admin-line); border-radius: 10px; box-shadow: 0 3px 14px rgba(23, 33, 43, .035); }
+.professional td { padding: 15px 18px; font-size: 12px; }
+.professional .pagination { align-items: center; justify-content: flex-end; font-size: 12px; color: var(--admin-muted); }
+.professional .pagination button { border-color: var(--admin-line); background: #fff; color: var(--admin-ink); }
+.professional #editor,
+.professional article { padding: 24px; border: 1px solid var(--admin-line); border-radius: 10px; box-shadow: 0 3px 14px rgba(23, 33, 43, .035); }
+.professional #status,
+.professional #emailSummary { font-size: 12px; line-height: 1.6; color: var(--admin-muted); }
+.professional :is(a, button, input, select, textarea):focus-visible { outline: 3px solid rgba(4, 118, 109, .38); outline-offset: 3px; }
+
+@media (max-width: 600px) {
+    .professional { padding: 20px 14px; }
+    .professional > header { padding: 21px; }
+    .professional h1 { font-size: 26px; }
+    .professional nav { padding: 10px; gap: 7px; }
+    .professional nav button { min-width: 115px; min-height: 44px; }
+    .professional form { align-items: stretch; }
+    .professional button,
+    .professional input,
+    .professional select { min-height: 44px; }
+    .professional textarea { min-width: 0; width: 100%; }
+    .professional #editor,
+    .professional article { padding: 18px; }
+}
